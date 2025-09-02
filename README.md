@@ -87,8 +87,14 @@ Your custom setup should load automatically.
 Instead of copying files, you can create **symlinks** so that updates in this repo are reflected instantly:
 
 ```bash
-ln -sf ~/path/to/dotfiles-ubuntu/zsh/.zshrc ~/.zshrc
-ln -sfn ~/path/to/dotfiles-ubuntu/nvim ~/.config/nvim
+# Clone repo
+git clone https://github.com/abdallah-shehawey/dotfiles-ubuntu.git ~/dotfiles-ubuntu
+
+# Symlink Zsh config
+ln -sf ~/dotfiles-ubuntu/zsh/.zshrc ~/.zshrc
+
+# Symlink Neovim config
+ln -sfn ~/dotfiles-ubuntu/nvim/nvim ~/.config/nvim
 ```
 
 ---
