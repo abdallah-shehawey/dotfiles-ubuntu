@@ -24,6 +24,9 @@
 | **zsh**                 | `sudo apt install zsh`               |
 | **CLangd**              | `sudo apt inatall clangd`            |
 | **Git**                 | `sudo apt install git`               |
+| **FireFox**             | `firefox from apt`                   |
+| **gcc**                 | `sudo apt install gcc`               |
+| **clang-format**        | `sudo apt install clang-format`      |
 
 ---
 
@@ -76,3 +79,4 @@
 | Terminal  | Tilix             |
 | Bash      | Zsh               |
 | Editor    | nvim              |
+| Browser   | Firefox           |

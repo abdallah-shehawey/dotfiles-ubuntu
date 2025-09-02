@@ -1,0 +1,41 @@
+{
+  "editor.fontSize": 22,
+  "editor.minimap.enabled": false,
+  "editor.overtypeCursorStyle": "line",
+  "editor.cursorBlinking": "expand",
+  "editor.cursorSmoothCaretAnimation": "on",
+  "breadcrumbs.enabled": false,
+  "workbench.list.smoothScrolling": true,
+  "editor.smoothScrolling": true,
+  "terminal.integrated.smoothScrolling": true,
+  "editor.renderWhitespace": "all",
+  "editor.fontFamily": "'Fira Code', monospace",
+  "terminal.integrated.fontLigatures.enabled": true,
+  "editor.fontLigatures": true,
+  "editor.fontWeight": "500",
+  "terminal.integrated.fontFamily": "'Fira Code', monospace",
+  "terminal.integrated.fontWeight": "700",
+  "files.autoSave": "afterDelay",
+  "editor.tabSize": 2,
+  "workbench.colorTheme": "Default Dark Modern",
+  "workbench.iconTheme": "material-icon-theme",
+  "editor.inlayHints.enabled": "off",
+  "editor.formatOnSave": true,
+  "editor.formatOnType": true,
+  "editor.formatOnPaste": true,
+  "editor.stickyScroll.enabled": false,
+  "clangd.arguments": [
+    "--clang-tidy",
+    "--header-insertion=never",
+    "--fallback-style=file"
+  ],
+  "[c]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+  "[cpp]": {
+    "editor.defaultFormatter": "xaver.clang-format"
+  },
+  "git.openRepositoryInParentFolders": "never",
+  "workbench.navigationControl.enabled": false,
+  "window.commandCenter": false
+}
