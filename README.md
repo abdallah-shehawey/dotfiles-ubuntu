@@ -51,6 +51,11 @@ cp ./zsh/.zshrc ~/.zshrc
 source ~/.zshrc
 ```
 
+### 7. Make Zsh the Default Shell
+```bash
+chsh -s $(which zsh)
+
+
 ---
 
 ## 📝 Neovim Setup
