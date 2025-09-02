@@ -27,6 +27,7 @@
 | **FireFox**             | `firefox from apt`                   |
 | **gcc**                 | `sudo apt install gcc`               |
 | **clang-format**        | `sudo apt install clang-format`      |
+| **FDM**                 | `sudo apt install fdm`               |
 
 ---
 
