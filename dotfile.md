@@ -22,6 +22,8 @@
 | **PuTTY**               |                                       |
 | **Tilix**               | `sudo apt insall tilix`              |
 | **zsh**                 | `sudo apt install zsh`               |
+| **CLangd**              | `sudo apt inatall clangd`            |
+| **Git**                 | `sudo apt install git`               |
 
 ---
 
