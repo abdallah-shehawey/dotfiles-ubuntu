@@ -40,6 +40,7 @@
 | Clipboard Indicator       |                         |
 | Compiz Windows Effect     |                         |
 | Dash to Dock              |                         |
+| Dash to Pnanel            |                         |
 | Desktop Widget (Clock)    |                         |
 | GSConnect                 |                         |
 | Just Perfection           |                         |
