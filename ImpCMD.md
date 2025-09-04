@@ -40,7 +40,7 @@ unrar x -o+ "Folder.rar" "Folder/"
 
 ## 🎮 Install Nvidia Driver
 
-- [ChatGPT Guide](https://chatgpt.com/share/681be582-837c-8000-b748-8c6200d4f306)
+- [Youtube Guide](https://youtu.be/9Ff9tl-32Wk?si=86SYqIQckN9Hu6PQ)
 
 ---
 
