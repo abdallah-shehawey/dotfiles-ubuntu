@@ -82,3 +82,13 @@
 | Bash      | Zsh               |
 | Editor    | nvim              |
 | Browser   | Firefox           |
+
+---
+
+# Settings
+
+## Tweaks
+
+| Header                | Select       |
+|-----------------------|--------------|
+| Keyboard Layout       | English (US, euro on 5) |
