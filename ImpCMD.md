@@ -61,7 +61,7 @@ unrar x -o+ "Folder.rar" "Folder/"
 ### Create Script
 
 ```bash
-sudo nano /usr/local/bin/update-every-thing
+sudo nvim /usr/local/bin/update-every-thing
 sudo chmod +x /usr/local/bin/update-every-thing
 ```
 
