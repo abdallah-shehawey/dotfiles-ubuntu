@@ -28,6 +28,7 @@
 | **gcc**                 | `sudo apt install gcc`               |
 | **clang-format**        | `sudo apt install clang-format`      |
 | **FDM**                 | `sudo apt install fdm`               |
+| **fzf**                 |  `git clone --depth 1 <https://github.com/junegunn/fzf.git> ~/.fzf` && `~/.fzf/install` |
 
 ---
 
