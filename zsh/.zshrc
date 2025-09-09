@@ -102,7 +102,7 @@ configure_prompt() {
     #[ "$EUID" -eq 0 ] && prompt_symbol=💀
     case "$PROMPT_ALTERNATIVE" in
         twoline)
-            PROMPT=$'%F{%(#.blue.green)}┌──${debian_chroot:+($debian_chroot)─}${VIRTUAL_ENV:+($(basename $VIRTUAL_ENV))─}(%B%F{%(#.red.blue)}%n'$prompt_symbol$'%m%b%F{%(#.blue.green)})-[%B%F{%(#.blue.green)}%~%b%F{%(#.blue.green)}]\n%F{%(#.blue.green)}└─%B%(#.%F{red}#.%F{blue}$)%b%F{reset} '
+            PROMPT=$'%F{%(#.blue.green)}┌──${debian_chroot:+($debian_chroot)─}${VIRTUAL_ENV:+($(basename $VIRTUAL_ENV))─}(%B%F{%(#.red.blue)}%n'$prompt_symbol$'%m%b%F{%(#.blue.green)})-[%B%F{%(#.blue.green)}%~%b%F{%(#.blue.green)}]$(git_branch)\n%F{%(#.blue.green)}└─%B%(#.%F{red}#.%F{blue}$)%b%F{reset} '
             # Right-side prompt with exit codes and background processes
             #RPROMPT=$'%(?.. %? %F{red}%B⨯%b%F{reset})%(1j. %j %F{yellow}%B⚙%b%F{reset}.)'
         ;;
@@ -116,6 +116,16 @@ configure_prompt() {
             ;;
     esac
     unset prompt_symbol
+}
+ 
+git_branch() {
+  ref=$(git symbolic-ref --short HEAD 2>/dev/null) || return
+  remote=$(git config branch.$ref.remote 2>/dev/null)
+  if [ -n "$remote" ]; then
+    echo " (%F{cyan}${ref}%f -> %F{cyan}${remote}%f)"
+  else
+    echo " (%F{cyan}${ref}%f)"
+  fi
 }
  
 # The following block is surrounded by two delimiters.
