@@ -2,33 +2,34 @@
 
 | App                     | Install Command / Source              |
 |-------------------------|---------------------------------------|
-| **WhatsApp**            | `io.github.mimbrero.WhatsAppDesktop` |
+| **WhatsApp**            | `io.github.mimbrero.WhatsAppDesktop`  |
 | **Telegram**            | `org.telegram.desktop`                |
-| **Discord**             | *official website*                   |
-| **STM32CubeIDE**        | *official website*                   |
-| **STM32CubeMX**         | *official website*                   |
-| **VS Code**             | `sudo apt install code`              |
-| **Windsurf**            | *official website*                   |
-| **Vysor**               | *easy*                               |
-| **Media Player**        | `smplayer`                           |
-| **Neovim**              | `sudo apt install nvim`              |
+| **Discord**             | *official website*                    |
+| **STM32CubeIDE**        | *official website*                    |
+| **STM32CubeMX**         | *official website*                    |
+| **VS Code**             | `sudo apt install code`               |
+| **Windsurf**            | *official website*                    |
+| **Vysor**               | *easy*                                |
+| **Media Player**        | `smplayer`                            |
+| **Neovim**              | `sudo apt install nvim`               |
 | **Bottles**             |                                       |
 | **AnyDesk**             |                                       |
-| **OnlyOffice**          | `apt`                                |
-| **GIMP**                | `org.gimp.GIMP`                      |
+| **OnlyOffice**          | `apt`                                 |
+| **GIMP**                | `org.gimp.GIMP`                       |
 | **OBS Studio**          |                                       |
 | **Foxit Reader**        |                                       |
 | **Serial Port Terminal**|                                       |
 | **PuTTY**               |                                       |
-| **Tilix**               | `sudo apt insall tilix`              |
-| **zsh**                 | `sudo apt install zsh`               |
-| **CLangd**              | `sudo apt inatall clangd`            |
-| **Git**                 | `sudo apt install git`               |
-| **FireFox**             | `firefox from apt`                   |
-| **gcc**                 | `sudo apt install gcc`               |
-| **clang-format**        | `sudo apt install clang-format`      |
-| **FDM**                 | `sudo apt install fdm`               |
+| **Tilix**               | `sudo apt insall tilix`               |
+| **zsh**                 | `sudo apt install zsh`                |
+| **CLangd**              | `sudo apt inatall clangd`             |
+| **Git**                 | `sudo apt install git`                |
+| **FireFox**             | `firefox from apt`                    |
+| **gcc**                 | `sudo apt install gcc`                |
+| **clang-format**        | `sudo apt install clang-format`       |
+| **FDM**                 | `sudo apt install fdm`                |
 | **fzf**                 |  `git clone --depth 1 <https://github.com/junegunn/fzf.git> ~/.fzf` && `~/.fzf/install` |
+| **Gnome SW Plugin**     | `sudo apt install gnome-software-plugin-snap` |
 
 ---
 
