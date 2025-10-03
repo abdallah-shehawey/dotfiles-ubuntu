@@ -86,11 +86,53 @@
 | Browser   | Firefox           |
 
 ---
-
 # Settings
 
 ## Tweaks
-
+  
 | Header                | Select       |
 |-----------------------|--------------|
 | Keyboard Layout       | English (US, euro on 5) |
+
+---
+
+# How to Auto-Mount a Partition on Linux Startup
+
+Here's how to automatically mount your partitions every time you start your system by editing the `fstab` file.
+
+### ## 1. Find the Partition's UUID and Type
+
+First, you need to get the unique identifier (**UUID**) and the filesystem type for the partition you want to mount. Use the `blkid` command with `sudo`:
+
+```bash
+sudo blkid
+```
+
+This will give you an output listing all partitions, their **UUIDs**, and their **TYPE** (e.g., `ntfs`, `ext4`).
+### ## 2. Edit the `/etc/fstab` File
+
+Next, open the filesystem table file, `fstab`, using a text editor with root privileges.
+```bash
+sudo nvim /etc/fstab
+```
+### ## 3. Add the Mount Entry
+
+Add a new line at the end of the file using the following format. Each field must be separated by a space or a tab.
+```
+UUID=<your_partition_uuid> <your_mount_point> <filesystem_type> <options> <dump> <pass>
+```
+
+**Example for NTFS Partitions:**
+
+The following examples are for mounting NTFS partitions (like Windows drives) and giving your user ownership to avoid permission issues.
+```bash
+# Mount Local_Disk
+UUID=7C9EBC0D9EBBBE48 /media/abdallah-shehawey/Local_Disk ntfs-3g defaults,nofail,x-gvfs-show,uid=1000,gid=1000,umask=0022 0 0
+
+# Mount WinOS
+UUID=01DC06CA66C0E3F0 /media/abdallah-shehawey/WinOS ntfs-3g defaults,nofail,x-gvfs-show,uid=1000,gid=1000,umask=0022 0 0
+
+# Mount Local_Disk2
+UUID=01DC06CA66E4E6B0 /media/abdallah-shehawey/Local_Disk2 ntfs-3g defaults,nofail,x-gvfs-show,uid=1000,gid=1000,umask=0022 0 0
+```
+After saving and closing the file, the partitions will mount automatically on the next reboot.
