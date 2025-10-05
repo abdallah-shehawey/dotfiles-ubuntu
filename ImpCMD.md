@@ -68,18 +68,64 @@ sudo chmod +x /usr/local/bin/update-every-thing
 ### Commands
 
 ```bash
-sudo apt update
-sudo apt upgrade
-sudo apt full-upgrade
-sudo apt install linux-generic
+#!/bin/bash
+# Script: update-every-thing
+# Function: Update everything in Ubuntu
+# Default: skip NVIDIA drivers
+# Option: --with-nvidia (update NVIDIA as well)
+
+echo "🚀 Starting full Ubuntu update..."
+
+WITH_NVIDIA=false
+
+# Detect option
+if [[ "$1" == "--with-nvidia" ]]; then
+  WITH_NVIDIA=true
+  echo "⚠️  NVIDIA drivers WILL be updated."
+else
+  echo "⛔ NVIDIA drivers will be skipped."
+  # Hold NVIDIA packages temporarily
+  sudo apt-mark hold nvidia-driver-* nvidia-dkms-* nvidia-kernel-* libnvidia-* >/dev/null 2>&1
+fi
+
+# Update apt packages
+echo "🔄 Updating apt packages..."
+sudo apt update -y
+sudo apt upgrade -y
+sudo apt full-upgrade -y
+sudo apt install -y linux-generic
+sudo apt autoremove -y
+sudo apt autoclean -y
+
+# Update snaps
+echo "🔄 Updating snap packages..."
 sudo snap refresh
-flatpak update
-pro security-status
-sudo pro fix
-gnome-extensions update
-sudo ubuntu-drivers devices
-sudo ubuntu-drivers autoinstall
-sudo apt update && sudo apt upgrade
+
+# Update flatpak
+echo "🔄 Updating flatpak packages..."
+flatpak update -y
+
+# Ubuntu Pro updates
+echo "🔄 Checking Ubuntu Pro security status..."
+pro security-status || true
+sudo pro fix || true
+
+# GNOME extensions update
+echo "🔄 Updating GNOME extensions..."
+gnome-extensions update || true
+
+# Drivers section
+echo "🔄 Updating Ubuntu drivers..."
+sudo ubuntu-drivers autoinstall || true
+
+# Release NVIDIA hold if it was set
+if [ "$WITH_NVIDIA" = false ]; then
+  echo "🔓 Releasing NVIDIA hold..."
+  sudo apt-mark unhold nvidia-driver-* nvidia-dkms-* nvidia-kernel-* libnvidia-* >/dev/null 2>&1
+fi
+
+echo "✅ Update finished!"
+
 ```
 
 ---
