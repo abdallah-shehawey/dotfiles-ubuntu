@@ -72,7 +72,7 @@
 |-----------------|------------------------------------------|
 | Interface Text  | PoetsenOne                               |
 | Document Text   | PoetsenOne                               |
-| Monospace Text  | Martian Mono Ultra-Bold `@width=100,wght=800` |
+| Monospace Text  | Fira Code Bold                           |
 
 ## Default Program
 
