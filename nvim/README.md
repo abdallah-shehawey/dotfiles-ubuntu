@@ -1,8 +1,8 @@
-## Install Recipes
+# Install Recipes
 
 Below you can find OS specific install instructions for Neovim and dependencies.
 
-After installing all the dependencies continue with the [Install Kickstart](#Install-Kickstart) step.
+After installing all the dependencies continue with the Install Kickstart step.
 
 #### Windows Installation
 
