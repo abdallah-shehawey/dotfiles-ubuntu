@@ -73,7 +73,7 @@
 | Interface Text | PoetsenOne     |
 | Document Text  | PoetsenOne     |
 | Monospace Text | Fira Code Bold |
-> **Note:** Some configurations in Neovim might not work properly, especially icons, if the monospace font is set to _Fira Code Bold_
+>**Note:** Some configurations in Neovim, especially icons, may not work properly **unless the monospace font is set to _Fira Code Bold_**
 
 ## Default Program
 
