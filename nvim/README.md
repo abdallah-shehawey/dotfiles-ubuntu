@@ -93,3 +93,19 @@ sudo dnf install -y gcc make git ripgrep fd-find unzip neovim
 ```bash
 git clone https://github.com/nvim-lua/kickstart.nvim.git "${XDG_CONFIG_HOME:-$HOME/.config}"/nvim
 ```
+
+## to download my configurations
+
+to use my configurations run the following commands:
+```bash
+git clone --no-checkout https://github.com/abdallah-shehawey/dotfiles-ubuntu.git
+cd dotfiles-ubuntu
+
+git sparse-checkout init --cone
+
+git sparse-checkout set nvim/nvim
+
+git checkout
+
+cp -r nvim/nvim "${XDG_CONFIG_HOME:-$HOME/.config}" 
+```
