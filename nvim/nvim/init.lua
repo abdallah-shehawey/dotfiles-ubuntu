@@ -95,7 +95,7 @@ vim.g.mapleader = ' '
 vim.g.maplocalleader = ' '
 
 -- Set to true if you have a Nerd Font installed and selected in the terminal
-vim.g.have_nerd_font = false
+vim.g.have_nerd_font = true
 
 -- [[ Setting options ]]
 -- See `:help vim.o`
@@ -277,6 +277,61 @@ require('lazy').setup({
       require('vscode').load()
     end,
   },
+  {
+    'nvim-neo-tree/neo-tree.nvim',
+    branch = 'v3.x',
+    dependencies = {
+      'nvim-lua/plenary.nvim',
+      'nvim-tree/nvim-web-devicons', -- icons
+      'MunifTanjim/nui.nvim',
+    },
+    config = function()
+      require('neo-tree').setup {
+        window = {
+          width = 35,
+          mappings = {
+            ['<C-b>'] = 'close_window',
+          },
+        },
+      }
+      vim.keymap.set('n', '<C-b>', ':Neotree toggle left<CR>', { noremap = true, silent = true })
+    end,
+  },
+  {
+    'nvim-lualine/lualine.nvim',
+    dependencies = { 'nvim-tree/nvim-web-devicons' },
+    config = function()
+      require('lualine').setup {
+        options = {
+          theme = 'onedark',
+          section_separators = { left = '', right = '' },
+          component_separators = { left = '', right = '' },
+        },
+        sections = {
+          lualine_a = { 'mode' },
+          lualine_b = {
+            {
+              'diagnostics',
+              sources = { 'nvim_diagnostic' },
+              sections = { 'error', 'warn', 'info', 'hint' },
+              symbols = { error = '󰅚 ', warn = ' ', info = ' ', hint = ' ' },
+              colored = true,
+              update_in_insert = true,
+            },
+          },
+          lualine_c = { 'filename' },
+          lualine_x = { { 'filetype', icon_only = true }, 'progress' },
+          lualine_y = { 'location' },
+          lualine_z = {
+            function()
+              return os.date '%H:%M'
+            end,
+          },
+        },
+      }
+    end,
+  },
+
   -- Use `opts = {}` to automatically pass options to a plugin's `setup()` function, forcing the plugin to be loaded.
   --
 
@@ -748,7 +803,7 @@ require('lazy').setup({
             -- by the server configuration above. Useful when disabling
             -- certain features of an LSP (for example, turning off formatting for ts_ls)
             server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            require('lspconfig')[server_name].setup(server)
+            vim.lsp.config[server_name].setup(server)
           end,
         },
       }
