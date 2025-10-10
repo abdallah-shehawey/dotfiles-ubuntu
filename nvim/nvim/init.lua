@@ -265,7 +265,6 @@ require('lazy').setup({
         italic_comments = true,
         disable_nvimtree_bg = true,
 
-        -- تقدر تخصص ألوانك هنا
         color_overrides = {
           vscLineNumber = '#FFFFFF',
         },
@@ -1091,4 +1090,3 @@ require('lazy').setup({
 -- vim: ts=2 sts=2 sw=2 et
 --
 require 'clangd'
-
