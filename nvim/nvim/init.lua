@@ -261,10 +261,9 @@ require('lazy').setup({
     config = function()
       local c = require('vscode.colors').get_colors()
       require('vscode').setup {
-        -- ممكن تختار dark أو light
-        transparent = false, -- لو عايز الخلفية تبقى شفافة حط true
+        transparent = false,
         italic_comments = true,
-        disable_nvimtree_bg = true, -- يخلي خلفية nvim-tree نفس اللون
+        disable_nvimtree_bg = true,
 
         -- تقدر تخصص ألوانك هنا
         color_overrides = {
@@ -324,7 +323,7 @@ require('lazy').setup({
           lualine_y = { 'location' },
           lualine_z = {
             function()
-              return os.date '%H:%M'
+              return os.date '%I:%M %p'
             end,
           },
         },
@@ -1092,3 +1091,4 @@ require('lazy').setup({
 -- vim: ts=2 sts=2 sw=2 et
 --
 require 'clangd'
+

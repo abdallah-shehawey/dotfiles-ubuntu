@@ -191,3 +191,15 @@ sudo apt upgrade
 ```bash
 sudo update-alternatives --config x-terminal-emulator
 ```
+
+## replace word in files
+
+```bash
+find . -type f -exec sed -i 's/oldword/newword/g' {} +
+```
+
+### with special format
+
+```bash
+find . -type f -name "*.txt" -exec sed -i 's/oldword/newword/g' {} +
+```
