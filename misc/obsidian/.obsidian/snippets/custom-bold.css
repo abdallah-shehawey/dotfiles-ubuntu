@@ -1,0 +1,11 @@
+/* Reading View */
+.markdown-preview-view strong,
+.markdown-preview-view b {
+    color: #ff5555 !important; /* أحمر فاتح */
+}
+
+/* Live Preview + Source Mode */
+.cm-strong {
+    color: #ff5555 !important; /* أحمر فاتح */
+}
+

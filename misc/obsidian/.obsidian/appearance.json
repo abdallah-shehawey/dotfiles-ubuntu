@@ -1,0 +1,11 @@
+{
+  "theme": "system",
+  "accentColor": "",
+  "cssTheme": "Encore",
+  "textFontFamily": "",
+  "baseFontSize": 20,
+  "interfaceFontFamily": "",
+  "enabledCssSnippets": [
+    "custom-bold"
+  ]
+}

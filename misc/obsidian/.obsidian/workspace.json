@@ -1,0 +1,204 @@
+{
+  "main": {
+    "id": "9b3a94f5f9a84fe1",
+    "type": "split",
+    "children": [
+      {
+        "id": "2d25708d8d8a23bb",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "6e9f58f6a8de8637",
+            "type": "leaf",
+            "state": {
+              "type": "markdown",
+              "state": {
+                "file": "README.md",
+                "mode": "source",
+                "source": false
+              },
+              "icon": "lucide-file",
+              "title": "README"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "vertical"
+  },
+  "left": {
+    "id": "b1c2c1784c409a3d",
+    "type": "split",
+    "children": [
+      {
+        "id": "a3718263556a39a8",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "f7f03c7d039a00c3",
+            "type": "leaf",
+            "state": {
+              "type": "file-explorer",
+              "state": {
+                "sortOrder": "alphabetical",
+                "autoReveal": false
+              },
+              "icon": "lucide-folder-closed",
+              "title": "Files"
+            }
+          },
+          {
+            "id": "790d207a146f667f",
+            "type": "leaf",
+            "state": {
+              "type": "search",
+              "state": {
+                "query": "",
+                "matchingCase": false,
+                "explainSearch": false,
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical"
+              },
+              "icon": "lucide-search",
+              "title": "Search"
+            }
+          },
+          {
+            "id": "403217763dd37d93",
+            "type": "leaf",
+            "state": {
+              "type": "bookmarks",
+              "state": {},
+              "icon": "lucide-bookmark",
+              "title": "Bookmarks"
+            }
+          }
+        ]
+      }
+    ],
+    "direction": "horizontal",
+    "width": 300
+  },
+  "right": {
+    "id": "4be01854ab7d5ca4",
+    "type": "split",
+    "children": [
+      {
+        "id": "73a5ee114ae67cfb",
+        "type": "tabs",
+        "children": [
+          {
+            "id": "3619249e8396da63",
+            "type": "leaf",
+            "state": {
+              "type": "backlink",
+              "state": {
+                "file": "Linux Adminstrtion/Vim Cheat Sheet.md",
+                "collapseAll": false,
+                "extraContext": false,
+                "sortOrder": "alphabetical",
+                "showSearch": false,
+                "searchQuery": "",
+                "backlinkCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-coming-in",
+              "title": "Backlinks for Vim Cheat Sheet"
+            }
+          },
+          {
+            "id": "96b865cd00a76eae",
+            "type": "leaf",
+            "state": {
+              "type": "outgoing-link",
+              "state": {
+                "file": "Linux Adminstrtion/02. Linux File System Essential.md",
+                "linksCollapsed": false,
+                "unlinkedCollapsed": true
+              },
+              "icon": "links-going-out",
+              "title": "Outgoing links from 02. Linux File System Essential"
+            }
+          },
+          {
+            "id": "d671099d5a7120d8",
+            "type": "leaf",
+            "state": {
+              "type": "tag",
+              "state": {
+                "sortOrder": "frequency",
+                "useHierarchy": true,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-tags",
+              "title": "Tags"
+            }
+          },
+          {
+            "id": "e08ba0b4cda6aa1b",
+            "type": "leaf",
+            "state": {
+              "type": "outline",
+              "state": {
+                "file": "Raspberry pi interfacing/3. Raspberry Pi GPIO control with python.md",
+                "followCursor": false,
+                "showSearch": false,
+                "searchQuery": ""
+              },
+              "icon": "lucide-list",
+              "title": "Outline of 3. Raspberry Pi GPIO control with python"
+            }
+          }
+        ],
+        "currentTab": 3
+      }
+    ],
+    "direction": "horizontal",
+    "width": 675,
+    "collapsed": true
+  },
+  "left-ribbon": {
+    "hiddenItems": {
+      "switcher:Open quick switcher": false,
+      "graph:Open graph view": false,
+      "canvas:Create new canvas": false,
+      "daily-notes:Open today's daily note": false,
+      "templates:Insert template": false,
+      "command-palette:Open command palette": false,
+      "bases:Create new base": false
+    }
+  },
+  "active": "6e9f58f6a8de8637",
+  "lastOpenFiles": [
+    "misc/obsidian",
+    "configs/autostart/auto_start.md",
+    "README.md",
+    "test.md",
+    "ImpCMD.md",
+    "Grub_Config.md",
+    "Zram-swap.md",
+    "Vidtime-Command.md",
+    "zsh/README.md",
+    "nvim/README.md",
+    "autostart/auto_start.md",
+    "dotfile.md",
+    "icon theme/README.md",
+    "Gnome Custom Mime Icon Guide.md",
+    "App-Customize Guide.md",
+    "scrcpy over wifi.md",
+    "Update every thing command.md",
+    "Raspberry pi interfacing/4. Motion Detection with PIR sensor.md",
+    "Raspberry pi interfacing/5. Sending Email from a Raspberry Pi Using Python.md",
+    "Raspberry pi interfacing/6. Camera Module with Raspberry Pi.md",
+    "Raspberry pi interfacing/1. Raspberry Pi Hardware.md",
+    "Raspberry pi interfacing/3. Raspberry Pi GPIO control with python.md",
+    "Raspberry pi interfacing/2. Raspberry pi setup guide.md",
+    "Linux Adminstrtion/Vim Cheat Sheet.md",
+    "Linux Adminstrtion/upgrade vs full upgrade in debian.md",
+    "Linux Adminstrtion/TTY vs PTS.md",
+    "Linux Adminstrtion/01. introduction to linux and-linux history.pdf",
+    "Raspberry pi interfacing"
+  ]
+}
