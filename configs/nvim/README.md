@@ -34,8 +34,8 @@ To download and install it correctly:
 
 ```bash
 # Clone repository without checking out everything
-git clone --no-checkout https://github.com/abdallah-shehawey/dotfiles_Linux.git
-cd dotfiles_Linux
+git clone --no-checkout git@github.com:abdallah-shehawey/dotfiles-linux.git
+cd dotfiles-linux
 
 # Enable sparse checkout
 git sparse-checkout init --cone
