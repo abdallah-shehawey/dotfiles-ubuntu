@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Script: update-everything-fedora-retry
+# Function: Update everything in Fedora with retry mechanism
+
+set -e
+
+retry_command() {
+    local cmd="$1"
+    local name="$2"
+
+    while true; do
+        echo "🔄 Trying: $name..."
+
+        if eval "$cmd"; then
+            echo "✅ $name finished successfully"
+            break
+        else
+            echo "❌ $name failed, retrying in 2 seconds..."
+            sleep 2
+        fi
+    done
+}
+
+echo "🚀 Starting full Fedora update..."
+
+# DNF Update
+retry_command "sudo dnf upgrade -y --refresh" "DNF System Update"
+
+# Firmware Update
+retry_command "sudo fwupdmgr refresh --force" "fwupd refresh"
+retry_command "sudo fwupdmgr update -y" "fwupd update"
+
+# Flatpak Update (if exists)
+if command -v flatpak &> /dev/null; then
+    retry_command "flatpak update -y" "Flatpak Update"
+fi
+
+# GNOME Extensions (RPM)
+if command -v gnome-extensions &> /dev/null; then
+    retry_command "sudo dnf upgrade -y 'gnome-shell-extension-*'" "GNOME Extensions Update"
+
+    echo "📋 Installed GNOME extensions:"
+    gnome-extensions list || true
+fi
+
+echo "🎉 All updates completed successfully!"
+
