@@ -1,43 +1,141 @@
 #!/usr/bin/env bash
+# vidtime - print the duration of media files and their total.
 set -o pipefail
 
-RED="\e[38;5;196m"
-RESET="\e[0m"
+VERSION="1.2.0"
+PROGRAM="${0##*/}"
+
+recursive=false
+total_only=false
+raw_seconds=false
+use_color=true
+[ -t 1 ] || use_color=false
+
+RED=""; DIM=""; BOLD=""; RESET=""
+
+set_colors() {
+  if [ "$use_color" = true ]; then
+    RED=$'\e[38;5;196m'; DIM=$'\e[2m'; BOLD=$'\e[1m'; RESET=$'\e[0m'
+  else
+    RED=""; DIM=""; BOLD=""; RESET=""
+  fi
+}
+
+usage() {
+  cat <<USAGE
+${PROGRAM} - print how long media files run, and their total
+
+USAGE:
+    ${PROGRAM} [OPTIONS] FILE...
+    ${PROGRAM} [OPTIONS] -r DIRECTORY...
+
+DESCRIPTION:
+    Reads the duration of each file with ffprobe and prints it as HH:MM:SS,
+    followed by the total of everything that could be read. Files that are
+    not media are reported on stderr and skipped; the total still comes out.
+
+OPTIONS:
+    -r, --recursive   Descend into directories and time every file inside
+    -t, --total       Print only the total, one line, nothing else
+    -s, --seconds     Print raw seconds instead of HH:MM:SS
+        --no-color    Never colorise output (also implied when not a terminal)
+    -V, --version     Print version and exit
+    -h, --help        Show this help and exit
+
+EXIT STATUS:
+    0   at least one file was timed
+    1   nothing could be timed
+    2   bad usage
+
+EXAMPLES:
+    ${PROGRAM} lecture01.mp4
+    ${PROGRAM} *.mkv
+    ${PROGRAM} -r ~/Videos
+    ${PROGRAM} -t -r ~/Videos/course
+USAGE
+}
+
+die() { printf '%s%s: %s%s\n' "$RED" "$PROGRAM" "$1" "$RESET" >&2; exit "${2:-2}"; }
+
+format_duration() {
+  local secs="$1"
+  if [ "$raw_seconds" = true ]; then
+    printf '%s' "$secs"
+  else
+    printf '%02d:%02d:%02d' "$((secs / 3600))" "$(((secs % 3600) / 60))" "$((secs % 60))"
+  fi
+}
+
+files=()
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -r|--recursive) recursive=true; shift ;;
+    -t|--total)     total_only=true; shift ;;
+    -s|--seconds)   raw_seconds=true; shift ;;
+    --no-color)     use_color=false; shift ;;
+    -V|--version)   echo "${PROGRAM} ${VERSION}"; exit 0 ;;
+    -h|--help)      usage; exit 0 ;;
+    --)             shift; while [ $# -gt 0 ]; do files+=("$1"); shift; done ;;
+    -*)             set_colors; die "unknown option: $1" ;;
+    *)              files+=("$1"); shift ;;
+  esac
+done
+
+set_colors
+command -v ffprobe >/dev/null 2>&1 || die "ffprobe is not installed (install ffmpeg)" 2
+[ ${#files[@]} -gt 0 ] || { usage >&2; exit 2; }
+
+# Expand directories when asked; without -r a directory is a usage error the
+# user should see rather than have silently skipped.
+targets=()
+for arg in "${files[@]}"; do
+  if [ -d "$arg" ]; then
+    if [ "$recursive" = true ]; then
+      while IFS= read -r -d '' f; do targets+=("$f"); done \
+        < <(find "$arg" -type f -print0 | sort -z)
+    else
+      printf '%s%s: %s is a directory (use -r)%s\n' "$RED" "$PROGRAM" "$arg" "$RESET" >&2
+    fi
+  else
+    targets+=("$arg")
+  fi
+done
 
 total=0
+counted=0
+for file in "${targets[@]}"; do
+  if [ ! -e "$file" ]; then
+    printf '%s%s: %s does not exist%s\n' "$RED" "$PROGRAM" "$file" "$RESET" >&2
+    continue
+  fi
+  if [ ! -f "$file" ]; then
+    printf '%s%s: %s is not a regular file%s\n' "$RED" "$PROGRAM" "$file" "$RESET" >&2
+    continue
+  fi
 
-if [ "$#" -eq 0 ]; then
-  echo -e "${RED}Usage: vidtime <file|pattern> [more files...]${RESET}" >&2
+  duration="$(ffprobe -v quiet -show_entries format=duration -of csv=p=0 -- "$file" 2>/dev/null)"
+  if [ -z "$duration" ] || [ "$duration" = "N/A" ]; then
+    printf '%s%s: %s is not a readable media file%s\n' "$RED" "$PROGRAM" "$file" "$RESET" >&2
+    continue
+  fi
+
+  secs="$(printf '%.0f' "$duration")"
+  total=$((total + secs))
+  counted=$((counted + 1))
+
+  [ "$total_only" = true ] && continue
+  printf '%s  %s\n' "$(format_duration "$secs")" "$file"
+done
+
+if [ "$counted" -eq 0 ]; then
+  printf '%s%s: nothing could be timed%s\n' "$RED" "$PROGRAM" "$RESET" >&2
   exit 1
 fi
 
-for file in "$@"; do
-  if [ ! -e "$file" ]; then
-    echo -e "${RED}Error: '$file' does not exist${RESET}" >&2
-    continue
-  fi
-
-  if [ ! -f "$file" ]; then
-    echo -e "${RED}Error: '$file' is not a regular file${RESET}" >&2
-    continue
-  fi
-
-  duration=$(ffprobe -v quiet -show_entries format=duration -of csv="p=0" "$file")
-  if [ $? -ne 0 ] || [ -z "$duration" ]; then
-    echo -e "${RED}Error: '$file' is not a valid media file${RESET}" >&2
-    continue
-  fi
-
-  printf "%s: " "$file"
-  echo "$duration" | awk '{printf "%02d:%02d:%02d\n",$1/3600,($1%3600)/60,$1%60}'
-
-  secs=$(printf "%.0f" "$duration")
-  total=$((total + secs))
-done
-
-if [ $total -ne 0 ]; then
-  printf "\nTotal: %02d:%02d:%02d\n" $((total/3600)) $(((total%3600)/60)) $((total%60))
-  exit 0
+if [ "$total_only" = true ]; then
+  format_duration "$total"; echo
 else
-  exit 1
+  printf '%s%s%s  %s(%d file%s)%s\n' \
+    "$BOLD" "$(format_duration "$total")" "$RESET" \
+    "$DIM" "$counted" "$([ "$counted" -eq 1 ] || echo s)" "$RESET"
 fi

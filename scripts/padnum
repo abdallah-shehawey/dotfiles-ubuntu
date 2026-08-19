@@ -2,7 +2,7 @@
 
 shopt -s nullglob
 
-PADNUM_VERSION="1.0.0"
+PADNUM_VERSION="1.2.0"
 
 MAX_UNDO=10
 UNDO_FILE=".padnum.undo"
@@ -13,6 +13,9 @@ ext_filter=""
 separator=" "
 undo_level=0
 show_history=false
+use_color=true
+[[ -t 1 ]] || use_color=false
+[[ -n "${NO_COLOR:-}" ]] && use_color=false
 
 show_help() {
 cat << 'EOF'
@@ -44,7 +47,9 @@ OPTIONS:
 
     --history             Show undo history (oldest → newest)
 
-    --version             Show program version
+    --no-color            Never colourise the history view
+
+    -V, --version         Show program version
 
     -h, --help            Show this help message and exit
 
@@ -82,7 +87,12 @@ to_decimal() {
 # -------------------------------------------------
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        -p|--padding) padding="$2"; shift 2 ;;
+        -p|--padding)
+            if [[ ! "${2:-}" =~ ^[0-9]+$ ]]; then
+                echo "padnum: --padding needs a non-negative integer, e.g. '-p 3'" >&2
+                exit 2
+            fi
+            padding="$2"; shift 2 ;;
         -n|--dry-run) dry_run=true; shift ;;
         --ext) ext_filter="$2"; shift 2 ;;
         --sep) separator="$2"; shift 2 ;;
@@ -96,13 +106,16 @@ while [[ $# -gt 0 ]]; do
             show_help
             exit 0
         ;;
-        --version)
-            echo "padnum version $PADNUM_VERSION"
+        -V|--version)
+            echo "padnum $PADNUM_VERSION"
             exit 0
             ;;
+        --no-color|--no-colour)
+            use_color=false; shift ;;
         *)
-            echo "Usage: padnum [-n] [-p padding] [--ext ext] [--sep sep] [--undo [N]] [--history] [--help] [--version]"
-            exit 1
+            echo "padnum: unknown option: $1" >&2
+            echo "Usage: padnum [-n] [-p N] [--ext EXT] [--sep SEP] [--undo [N]] [--history] [--no-color] [-h] [-V]" >&2
+            exit 2
             ;;
     esac
 done
@@ -116,15 +129,15 @@ if $show_history; then
         exit 1
     }
 
-    awk '
+    awk -v color="$($use_color && echo 1 || echo 0)" '
     BEGIN {
         # ANSI colors
-        CYAN   = "\033[36m"
-        GREEN  = "\033[32m"
-        YELLOW = "\033[33m"
-        RED    = "\033[31m"
-        GRAY   = "\033[90m"
-        RESET  = "\033[0m"
+        CYAN   = color ? "\033[36m" : ""
+        GREEN  = color ? "\033[32m" : ""
+        YELLOW = color ? "\033[33m" : ""
+        RED    = color ? "\033[31m" : ""
+        GRAY   = color ? "\033[90m" : ""
+        RESET  = color ? "\033[0m"  : ""
 
         sep = "────────────────────────────────────────────────────────────"
         block = 0
@@ -168,7 +181,7 @@ if $show_history; then
             }
         }
     }
-    ' "$UNDO_FILE" | less -R
+    ' "$UNDO_FILE" | { command -v less >/dev/null 2>&1 && less -R || cat; }
     
     exit 0
 fi
@@ -234,19 +247,23 @@ if [[ -z "$padding" ]]; then
 fi
 
 timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-tmp_undo="$(mktemp)"
+tmp_undo=""
 
-# -------------------------------------------------
-# Rotate undo history
-# -------------------------------------------------
-if [[ -f "$UNDO_FILE" ]]; then
-    awk -v max="$MAX_UNDO" '
-        /^# UNDO / { c++ }
-        c <= max
-    ' "$UNDO_FILE" >> "$tmp_undo"
+if ! $dry_run; then
+    tmp_undo="$(mktemp)"
+
+    # -------------------------------------------------
+    # Rotate undo history
+    # -------------------------------------------------
+    if [[ -f "$UNDO_FILE" ]]; then
+        awk -v max="$MAX_UNDO" '
+            /^# UNDO / { c++ }
+            c <= max
+        ' "$UNDO_FILE" >> "$tmp_undo"
+    fi
+
+    echo "# UNDO 1 | $timestamp" > "$UNDO_FILE"
 fi
-
-echo "# UNDO 1 | $timestamp" > "$UNDO_FILE"
 
 # -------------------------------------------------
 # Rename files
@@ -274,5 +291,7 @@ for file in *; do
     fi
 done
 
-cat "$tmp_undo" >> "$UNDO_FILE"
-rm -f "$tmp_undo"
+if ! $dry_run; then
+    cat "$tmp_undo" >> "$UNDO_FILE"
+    rm -f "$tmp_undo"
+fi

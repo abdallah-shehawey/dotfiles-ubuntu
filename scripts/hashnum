@@ -1,0 +1,110 @@
+#!/usr/bin/env bash
+# hashnum - move a #N tag to the front of a filename.
+set -euo pipefail
+shopt -s nullglob
+
+VERSION="1.1.0"
+PROGRAM="${0##*/}"
+
+dry_run=false
+quiet=false
+targets=()
+
+usage() {
+  cat <<USAGE
+${PROGRAM} - move a #N tag to the front of a filename
+
+USAGE:
+    ${PROGRAM} [OPTIONS] [FILE...]
+
+DESCRIPTION:
+    Downloads and exports often name files like "Some Long Title #12.mp4",
+    which sorts by title rather than by number. ${PROGRAM} lifts the #N tag
+    out of wherever it sits and puts it at the front:
+
+        Some Long Title #12.mp4   ->   #12 Some Long Title.mp4
+
+    With no arguments it works on every file in the current directory that
+    contains a #N tag. Files without one are left alone, and so are
+    directories. An existing file is never overwritten.
+
+    Pair it with padnum(1) when the numbers need zero-padding as well.
+
+OPTIONS:
+    -n, --dry-run   Show what would be renamed and change nothing
+    -q, --quiet     Print nothing except errors
+    -V, --version   Print version and exit
+    -h, --help      Show this help and exit
+
+EXIT STATUS:
+    0   at least one file was renamed (or would be, with -n)
+    1   nothing matched
+    2   bad usage
+
+EXAMPLES:
+    ${PROGRAM} -n
+    ${PROGRAM}
+    ${PROGRAM} "Episode Title #7.mkv"
+USAGE
+}
+
+die() { printf '%s: %s\n' "$PROGRAM" "$1" >&2; exit "${2:-2}"; }
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -n|--dry-run) dry_run=true; shift ;;
+    -q|--quiet)   quiet=true; shift ;;
+    -V|--version) echo "${PROGRAM} ${VERSION}"; exit 0 ;;
+    -h|--help)    usage; exit 0 ;;
+    --)           shift; while [ $# -gt 0 ]; do targets+=("$1"); shift; done ;;
+    -*)           die "unknown option: $1" ;;
+    *)            targets+=("$1"); shift ;;
+  esac
+done
+
+if [ ${#targets[@]} -eq 0 ]; then
+  targets=(*"#"*)
+fi
+
+renamed=0
+for path in "${targets[@]}"; do
+  [ -e "$path" ] || { printf '%s: %s does not exist\n' "$PROGRAM" "$path" >&2; continue; }
+  [ -d "$path" ] && continue
+
+  dir="$(dirname -- "$path")"
+  file="$(basename -- "$path")"
+
+  # The tag is a # followed by at least one digit, anywhere in the name.
+  [[ "$file" =~ (#[0-9]+) ]] || continue
+  tag="${BASH_REMATCH[1]}"
+
+  # Remove the tag along with any whitespace that was padding it, then tidy up
+  # the double space or trailing separator it leaves behind.
+  rest="${file/"$tag"/}"
+  rest="${rest//  / }"
+  rest="${rest#"${rest%%[![:space:]]*}"}"
+  rest="${rest%"${rest##*[![:space:]]}"}"
+  rest="${rest// ./.}"
+
+  new="${tag} ${rest}"
+  [ "$file" = "$new" ] && continue
+
+  if [ -e "${dir}/${new}" ]; then
+    printf '%s: refusing to overwrite %s\n' "$PROGRAM" "${dir}/${new}" >&2
+    continue
+  fi
+
+  if [ "$dry_run" = true ]; then
+    printf '%s  ->  %s\n' "$file" "$new"
+  else
+    mv -n -- "${dir}/${file}" "${dir}/${new}"
+    [ "$quiet" = true ] || printf '%s  ->  %s\n' "$file" "$new"
+  fi
+  renamed=$((renamed + 1))
+done
+
+if [ "$renamed" -eq 0 ]; then
+  [ "$quiet" = true ] || printf '%s: nothing to rename\n' "$PROGRAM" >&2
+  exit 1
+fi
+exit 0

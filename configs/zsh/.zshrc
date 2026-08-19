@@ -341,21 +341,33 @@ export PATH=$HOME/.local/bin:$PATH
 
 # ---------- meet dynamic commands ----------
 
-meet_file="$HOME/.meet/links"
+# The meet package keeps its list here; older setups used ~/.meet/links.
+if [[ -f "$HOME/.meet/links" ]]; then
+    meet_file="$HOME/.meet/links"
+else
+    meet_file="${XDG_CONFIG_HOME:-$HOME/.config}/meet/links"
+fi
 
-# completion function for meet
-_meet_list() {
-    reply=($(awk '{print $1}' "$meet_file" 2>/dev/null))
-}
-
-# autocomplete for: meet <name>
-compctl -K _meet_list meet
-
-# create dynamic commands
-while read -r name url; do
-    eval "
-    $name() {
-        meet $name
+# compctl is the *old* completion system and takes precedence over compsys, so
+# registering it would shadow the full completion the meet package installs at
+# /usr/share/zsh/site-functions/_meet. Only fall back to this simple one when
+# that file is not there.
+if [[ ! -e /usr/share/zsh/site-functions/_meet ]]; then
+    _meet_list() {
+        reply=($(awk '{print $1}' "$meet_file" 2>/dev/null))
     }
-    "
-done < "$meet_file"
+    compctl -K _meet_list meet
+fi
+
+# One shorthand function per saved meeting, so `standup` opens it directly.
+# Names that already exist as a command are skipped: a meeting called "ls"
+# should not cost you ls.
+if [[ -r "$meet_file" ]]; then
+    while read -r name url; do
+        [[ -z "$name" || "$name" == '#'* ]] && continue
+        (( $+commands[$name] )) && continue
+        [[ -n "${functions[$name]}" ]] && continue
+        eval "$name() { meet ${(q)name} }"
+    done < "$meet_file"
+fi
+unset name url

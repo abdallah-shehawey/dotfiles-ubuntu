@@ -1,80 +1,159 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# meet - open a saved meeting link by name.
+set -euo pipefail
 
-file="$HOME/.meet/links"
+VERSION="1.2.0"
+PROGRAM="${0##*/}"
 
-mkdir -p "$HOME/.meet"
-touch "$file"
+# Honour the XDG layout, but keep reading the original location so existing
+# link files keep working after an upgrade.
+LEGACY_FILE="$HOME/.meet/links"
+XDG_FILE="${XDG_CONFIG_HOME:-$HOME/.config}/meet/links"
 
-# help menu
-if [ "$1" = "--help" ] || [ "$1" = "-h" ]; then
-    echo "meet - Simple Google Meet launcher"
-    echo
-    echo "Usage:"
-    echo "  meet                     Open interactive selector"
-    echo "  meet <name>              Open saved meeting directly"
-    echo "  meet --add <name> <url> Add a new meeting"
-    echo "  meet --delete <name>     Delete a saved meeting"
-    echo "  meet --help              Show this help message"
-    exit 0
-fi
-
-# add new meeting
-if [ "$1" = "--add" ]; then
-    name="$2"
-    url="$3"
-
-    if [ -z "$name" ] || [ -z "$url" ]; then
-        echo "Usage: meet --add <name> <url>"
-        exit 1
-    fi
-
-    # يمنع التكرار
-    if grep -q "^$name " "$file"; then
-        echo "Meeting name already exists: $name"
-        exit 1
-    fi
-
-    echo "$name $url" >> "$file"
-    echo "Added: $name"
-    exit 0
-fi
-
-# delete meeting
-if [ "$1" = "--delete" ]; then
-    name="$2"
-
-    if [ -z "$name" ]; then
-        echo "Usage: meet --delete <name>"
-        exit 1
-    fi
-
-    if ! grep -q "^$name " "$file"; then
-        echo "No meeting found: $name"
-        exit 1
-    fi
-
-    grep -v "^$name " "$file" > "$file.tmp" && mv "$file.tmp" "$file"
-
-    echo "Deleted: $name"
-    exit 0
-fi
-
-# open directly by name
-if [ -n "$1" ]; then
-    url=$(grep "^$1 " "$file" | awk '{print $2}')
-
-    if [ -z "$url" ]; then
-        echo "No meeting found: $1"
-        exit 1
-    fi
-
-# interactive mode
+if [ -f "$LEGACY_FILE" ]; then
+  FILE="$LEGACY_FILE"
 else
-    choice=$(cat "$file" | fzf)
-
-    [ -z "$choice" ] && exit 0
-
-    url=$(echo "$choice" | awk '{print $2}')
+  FILE="$XDG_FILE"
 fi
+[ -n "${MEET_LINKS:-}" ] && FILE="$MEET_LINKS"
 
-xdg-open "$url" >/dev/null 2>&1 &
+usage() {
+  cat <<USAGE
+${PROGRAM} - open a saved meeting link by name
+
+USAGE:
+    ${PROGRAM}                       Pick a meeting interactively
+    ${PROGRAM} NAME                  Open a saved meeting straight away
+    ${PROGRAM} -a, --add NAME URL    Save a new meeting
+    ${PROGRAM} -d, --delete NAME     Forget a saved meeting
+    ${PROGRAM} -l, --list            List saved meetings
+    ${PROGRAM} -p, --print NAME      Print the URL instead of opening it
+
+OPTIONS:
+    -f, --file PATH   Use this links file instead of the default
+    -n, --dry-run     With NAME, show what would open without opening it
+    -V, --version     Print version and exit
+    -h, --help        Show this help and exit
+
+FILES:
+    ${FILE}
+    One "NAME URL" pair per line. Names may not contain spaces.
+
+EXAMPLES:
+    ${PROGRAM} --add standup https://meet.google.com/abc-defg-hij
+    ${PROGRAM} standup
+    ${PROGRAM} --list
+USAGE
+}
+
+die() { printf '%s: %s\n' "$PROGRAM" "$1" >&2; exit "${2:-2}"; }
+
+ensure_file() {
+  mkdir -p "$(dirname "$FILE")"
+  [ -f "$FILE" ] || : > "$FILE"
+}
+
+# Exact first-field match. grep "^$name " would treat the name as a regex, so
+# a meeting called "c++" or "a.b" would match the wrong line or none at all.
+lookup() {
+  awk -v want="$1" '$1 == want { print $2; found = 1; exit } END { exit !found }' "$FILE"
+}
+
+exists() { awk -v want="$1" '$1 == want { found = 1; exit } END { exit !found }' "$FILE"; }
+
+open_url() {
+  local url="$1"
+  if [ "$dry_run" = true ]; then
+    printf 'would open: %s\n' "$url"
+    return 0
+  fi
+  command -v xdg-open >/dev/null 2>&1 || die "xdg-open is not installed (install xdg-utils)"
+  xdg-open "$url" >/dev/null 2>&1 &
+  printf 'opening %s\n' "$url"
+}
+
+action=""
+dry_run=false
+args=()
+
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -a|--add)     action=add;    shift ;;
+    -d|--delete|--del|--remove) action=delete; shift ;;
+    -l|--list)    action=list;   shift ;;
+    -p|--print)   action=print;  shift ;;
+    -f|--file)    [ -n "${2:-}" ] || die "--file needs a path"; FILE="$2"; shift 2 ;;
+    -n|--dry-run) dry_run=true;  shift ;;
+    -V|--version) echo "${PROGRAM} ${VERSION}"; exit 0 ;;
+    -h|--help)    usage; exit 0 ;;
+    --)           shift; while [ $# -gt 0 ]; do args+=("$1"); shift; done ;;
+    -*)           die "unknown option: $1" ;;
+    *)            args+=("$1"); shift ;;
+  esac
+done
+
+ensure_file
+
+case "$action" in
+  add)
+    [ ${#args[@]} -eq 2 ] || die "usage: ${PROGRAM} --add NAME URL"
+    name="${args[0]}"; url="${args[1]}"
+    case "$name" in *[[:space:]]*) die "a meeting name may not contain spaces" ;; esac
+    case "$url" in http://*|https://*) ;; *) die "URL must start with http:// or https://" ;; esac
+    exists "$name" && die "a meeting called '$name' already exists" 1
+    printf '%s %s\n' "$name" "$url" >> "$FILE"
+    printf 'added %s\n' "$name"
+    ;;
+
+  delete)
+    [ ${#args[@]} -eq 1 ] || die "usage: ${PROGRAM} --delete NAME"
+    name="${args[0]}"
+    exists "$name" || die "no meeting called '$name'" 1
+    tmp="$(mktemp)"
+    awk -v want="$name" '$1 != want' "$FILE" > "$tmp" && mv "$tmp" "$FILE"
+    printf 'deleted %s\n' "$name"
+    ;;
+
+  list)
+    [ -s "$FILE" ] || die "no meetings saved yet (${PROGRAM} --add NAME URL)" 1
+    awk '{ printf "%-20s %s\n", $1, $2 }' "$FILE"
+    ;;
+
+  print)
+    [ ${#args[@]} -eq 1 ] || die "usage: ${PROGRAM} --print NAME"
+    url="$(lookup "${args[0]}")" || die "no meeting called '${args[0]}'" 1
+    printf '%s\n' "$url"
+    ;;
+
+  *)
+    if [ ${#args[@]} -gt 1 ]; then
+      die "expected one meeting name, got ${#args[@]}"
+    elif [ ${#args[@]} -eq 1 ]; then
+      url="$(lookup "${args[0]}")" || die "no meeting called '${args[0]}'" 1
+      open_url "$url"
+    else
+      [ -s "$FILE" ] || die "no meetings saved yet (${PROGRAM} --add NAME URL)" 1
+      if command -v fzf >/dev/null 2>&1; then
+        choice="$(fzf --prompt='meeting> ' --height=40% --reverse < "$FILE")" || exit 0
+      else
+        # fzf is only a Recommends, so stay usable without it.
+        mapfile -t lines < "$FILE"
+        local_i=1
+        for line in "${lines[@]}"; do
+          printf '%2d) %s\n' "$local_i" "${line%% *}"
+          local_i=$((local_i + 1))
+        done
+        printf 'pick a number (empty to cancel): '
+        read -r pick
+        [ -z "$pick" ] && exit 0
+        case "$pick" in
+          ''|*[!0-9]*) die "not a number: $pick" ;;
+        esac
+        [ "$pick" -ge 1 ] && [ "$pick" -le "${#lines[@]}" ] || die "no such entry: $pick"
+        choice="${lines[$((pick - 1))]}"
+      fi
+      [ -z "$choice" ] && exit 0
+      open_url "${choice#* }"
+    fi
+    ;;
+esac

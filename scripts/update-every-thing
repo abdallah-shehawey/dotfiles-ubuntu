@@ -1,22 +1,17 @@
 #!/usr/bin/env bash
-# Script: update-every-thing  (Fedora)
-# Put it in: /usr/local/bin/update-every-thing   (then: sudo chmod +x it)
+# update-every-thing - run every update this system needs, in one pass.
 #
-# Update order:
-#   1. Antigravity IDE
-#   2. DNF System Packages   (the run's one and only metadata refresh)
-#   3. Firmware (fwupd)
-#   4. Flatpak
-#   5. GNOME extensions      (listing only — the RPMs come with step 2)
-#   6. Cleanup
+# Works on both families. The package-manager steps differ completely between
+# them, so they are separate paths; everything else (firmware, Flatpak, Snap,
+# the IDE) is shared.
 #
-# A step that fails is retried a bounded number of times, then given up on so
-# the run always reaches the end, and every outcome is printed as a summary
-# once everything is done.
+# Order matters: the system update runs the one and only repository metadata
+# refresh of the run, and everything that would trigger another one is
+# arranged around it.
 #
-# Usage: update-every-thing [-c N] [--with-nvidia]
-#   -c N            retry a failing step N times before moving on (default: 5)
-#   --with-nvidia   update NVIDIA drivers too (excluded by default)
+# A step that fails is retried a bounded number of times and then given up on,
+# so the run always reaches the end and you get one summary instead of
+# discovering a failure three commands later.
 
 set -uo pipefail
 
@@ -24,21 +19,59 @@ set -uo pipefail
 # for the shell to expand against the current directory.
 set -f
 
+VERSION="2.1.0"
+PROGRAM="${0##*/}"
+
 # ==============================================================================
 # Options
 # ==============================================================================
 
 RETRIES=5            # attempts per step before we give up on it and move on
 RETRY_DELAY=2        # seconds between attempts
-WITH_NVIDIA=false    # NVIDIA updates can break a running session — opt in
+WITH_NVIDIA=false    # NVIDIA updates can break a running session - opt in
+USE_COLOR=auto
+
+# Status markers are plain ASCII on purpose. Emoji are double-width in most
+# terminals but count as one character to printf, so any column after one of
+# them lands in the wrong place.
+MARK_OK="  ok  "
+MARK_FAIL=" FAIL "
+MARK_SKIP=" skip "
+
+setup_colors() {
+    local on=false
+    case "$USE_COLOR" in
+        always) on=true ;;
+        never)  on=false ;;
+        auto)   [[ -t 1 && "${TERM:-dumb}" != dumb && -z "${NO_COLOR:-}" ]] && on=true ;;
+    esac
+    if $on; then
+        C_RESET=$'\e[0m'; C_BOLD=$'\e[1m'; C_DIM=$'\e[2m'
+        C_OK=$'\e[32m'; C_FAIL=$'\e[31m'; C_SKIP=$'\e[33m'; C_HEAD=$'\e[36m'
+    else
+        C_RESET=""; C_BOLD=""; C_DIM=""
+        C_OK=""; C_FAIL=""; C_SKIP=""; C_HEAD=""
+    fi
+}
+
+RULE="============================================================"
+rule() { printf '%s%s%s\n' "$C_DIM" "$RULE" "$C_RESET"; }
 
 usage() {
-    cat <<'USAGE'
-Usage: update-every-thing [-c N] [--with-nvidia] [-h]      (Fedora)
+    cat <<USAGE
+Usage: ${PROGRAM} [-c N] [--with-nvidia] [-V] [-h]
+
+Runs every update this system needs and prints one summary at the end.
+Detects dnf/yum or apt automatically and uses the right commands for each.
 
   -c N, --retries N   Attempt each failing step up to N times before giving up
                       on it and moving to the next one (default: 5).
-  --with-nvidia       Update NVIDIA/CUDA packages as well (excluded by default).
+  --with-nvidia       Update NVIDIA/CUDA packages as well (excluded by default,
+                      because replacing the driver under a running session can
+                      break it).
+      --color WHEN    Colourise output: always, never or auto (default: auto).
+      --no-color      Same as --color never.
+  -V, --version       Print the version and exit.
   -h, --help          Show this help.
 
 Nothing aborts the run: a step that keeps failing is reported in the summary at
@@ -48,11 +81,13 @@ Exit status: 0 if every step that ran succeeded, 1 if any step failed.
 USAGE
 }
 
+setup_colors
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -c|--retries)
             if [[ ! "${2:-}" =~ ^[1-9][0-9]*$ ]]; then
-                echo "❌ $1 needs a positive integer, e.g. '$1 3'" >&2
+                echo "$PROGRAM: $1 needs a positive integer, e.g. '$1 3'" >&2
                 exit 2
             fi
             RETRIES="$2"
@@ -62,12 +97,27 @@ while [[ $# -gt 0 ]]; do
             WITH_NVIDIA=true
             shift
             ;;
+        --color)
+            case "${2:-}" in
+                always|never|auto) USE_COLOR="$2" ;;
+                *) echo "$1 takes always, never or auto" >&2; exit 2 ;;
+            esac
+            shift 2
+            ;;
+        --no-color)
+            USE_COLOR=never
+            shift
+            ;;
+        -V|--version)
+            echo "${PROGRAM} ${VERSION}"
+            exit 0
+            ;;
         -h|--help)
             usage
             exit 0
             ;;
         *)
-            echo "❌ Unknown option: $1" >&2
+            echo "$PROGRAM: unknown option: $1" >&2
             echo >&2
             usage >&2
             exit 2
@@ -76,7 +126,27 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ==============================================================================
-# Bookkeeping — every step records its outcome for the final summary
+# Which system is this?
+# ==============================================================================
+
+PM=""          # the package manager binary
+FAMILY=""      # rpm | deb
+
+if command -v dnf &> /dev/null; then
+    PM="$(command -v dnf)"; FAMILY=rpm
+elif command -v yum &> /dev/null; then
+    PM="$(command -v yum)"; FAMILY=rpm
+elif command -v apt-get &> /dev/null; then
+    PM="$(command -v apt-get)"; FAMILY=deb
+else
+    echo "$PROGRAM: no supported package manager found (looked for dnf, yum, apt-get)" >&2
+    exit 2
+fi
+
+DISTRO="$(. /etc/os-release 2>/dev/null && echo "${PRETTY_NAME:-unknown}")"
+
+# ==============================================================================
+# Bookkeeping - every step records its outcome for the final summary
 # ==============================================================================
 
 SUMMARY=()           # one "STATUS|NAME|DETAIL" record per step
@@ -90,16 +160,15 @@ record() {
 
 # retry_command <command> <name> [attempts]
 #
-# Runs a command, retrying it up to $RETRIES times — or [attempts], for
-# best-effort steps that are pointless to repeat. Never aborts the script: a
-# step that keeps failing is recorded and the run moves on to the next one.
+# Runs a command, retrying it up to $RETRIES times - or [attempts], for
+# best-effort steps that are pointless to repeat. Never aborts the script.
 #
 # Neither stdout nor stderr is redirected anywhere. That is deliberate: dnf,
 # apt and flatpak draw their download progress on stderr and size it from the
 # terminal, so piping either stream (through `tee`, say) costs them the
 # terminal and their progress bars come out duplicated and wrapped. The command
 # runs exactly as if you had typed it yourself, and the summary at the end
-# records which step failed and with what exit code — its error text is already
+# records which step failed and with what exit code - its error text is already
 # on screen, right above.
 retry_command() {
     local cmd="$1"
@@ -110,9 +179,11 @@ retry_command() {
 
     while (( attempt <= max )); do
         echo
-        echo "============================================================"
-        echo "🔄 Trying: $name... (attempt $attempt/$max)"
-        echo "============================================================"
+        rule
+        printf '%s>>%s %s%s%s   %sattempt %d/%d%s\n' \
+            "$C_HEAD" "$C_RESET" "$C_BOLD" "$name" "$C_RESET" \
+            "$C_DIM" "$attempt" "$max" "$C_RESET"
+        rule
 
         CURRENT_STEP="$name"
         eval "$cmd"
@@ -120,21 +191,23 @@ retry_command() {
         CURRENT_STEP=""
 
         if (( status == 0 )); then
-            echo "✅ $name finished successfully"
-            record OK "$name" "succeeded on attempt $attempt/$max"
+            printf '%s[%s]%s %s\n' "$C_OK" "$MARK_OK" "$C_RESET" "$name"
+            record OK "$name" "attempt $attempt/$max"
             return 0
         fi
 
-        echo "❌ $name failed (attempt $attempt/$max, exit $status)."
+        printf '%s[%s]%s %s (attempt %d/%d, exit %d)\n' \
+            "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$attempt" "$max" "$status"
         attempt=$(( attempt + 1 ))
 
         if (( attempt <= max )); then
-            echo "🔁 Retrying in ${RETRY_DELAY} seconds..."
+            printf '%s   retrying in %ds...%s\n' "$C_DIM" "$RETRY_DELAY" "$C_RESET"
             sleep "$RETRY_DELAY"
         fi
     done
 
-    echo "⛔ $name failed $max time(s) — giving up on it and moving on."
+    printf '%s[%s]%s %s - gave up after %d attempt(s)\n' \
+        "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$max"
     record FAIL "$name" "gave up after $max attempt(s), exit $status"
     FAILED=$(( FAILED + 1 ))
     return 1
@@ -142,17 +215,26 @@ retry_command() {
 
 skip_step() {
     echo
-    echo "⏭️ $1 — $2"
+    printf '%s[%s]%s %s %s(%s)%s\n' \
+        "$C_SKIP" "$MARK_SKIP" "$C_RESET" "$1" "$C_DIM" "$2" "$C_RESET"
     record SKIP "$1" "$2"
 }
 
 print_summary() {
-    local ok=0 fail=0 skip=0 entry status name detail
+    local ok=0 fail=0 skip=0 entry status name detail width=0
+
+    # Size the name column from the longest name actually present, so the
+    # detail column lines up whatever steps ran.
+    for entry in "${SUMMARY[@]}"; do
+        IFS='|' read -r status name detail <<<"$entry"
+        (( ${#name} > width )) && width=${#name}
+    done
+    (( width < 20 )) && width=20
 
     echo
-    echo "============================================================"
-    echo "📋 Update Summary"
-    echo "============================================================"
+    rule
+    printf '%s  Summary%s\n' "$C_BOLD" "$C_RESET"
+    rule
 
     if (( ${#SUMMARY[@]} == 0 )); then
         echo "  (nothing ran)"
@@ -160,26 +242,48 @@ print_summary() {
         for entry in "${SUMMARY[@]}"; do
             IFS='|' read -r status name detail <<<"$entry"
             case "$status" in
-                OK)   printf '  ✅ %-32s %s\n' "$name" "$detail"; ok=$((   ok   + 1 )) ;;
-                FAIL) printf '  ❌ %-32s %s\n' "$name" "$detail"; fail=$(( fail + 1 )) ;;
-                SKIP) printf '  ⏭️  %-32s %s\n' "$name" "$detail"; skip=$(( skip + 1 )) ;;
+                OK)   printf '  %s[%s]%s  %-*s  %s%s%s\n' \
+                          "$C_OK" "$MARK_OK" "$C_RESET" "$width" "$name" \
+                          "$C_DIM" "$detail" "$C_RESET"
+                      ok=$(( ok + 1 )) ;;
+                FAIL) printf '  %s[%s]%s  %-*s  %s%s%s\n' \
+                          "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$width" "$name" \
+                          "$C_DIM" "$detail" "$C_RESET"
+                      fail=$(( fail + 1 )) ;;
+                SKIP) printf '  %s[%s]%s  %-*s  %s%s%s\n' \
+                          "$C_SKIP" "$MARK_SKIP" "$C_RESET" "$width" "$name" \
+                          "$C_DIM" "$detail" "$C_RESET"
+                      skip=$(( skip + 1 )) ;;
             esac
         done
     fi
 
-    echo "------------------------------------------------------------"
-    printf '  %d succeeded · %d failed · %d skipped   (retry limit: %d, took %dm %ds)\n' \
-        "$ok" "$fail" "$skip" "$RETRIES" "$(( SECONDS / 60 ))" "$(( SECONDS % 60 ))"
-    echo "============================================================"
+    printf '%s%s%s\n' "$C_DIM" "------------------------------------------------------------" "$C_RESET"
+    printf '  %d ok, %d failed, %d skipped   %s(retry limit %d, took %dm %02ds)%s\n' \
+        "$ok" "$fail" "$skip" "$C_DIM" "$RETRIES" \
+        "$(( SECONDS / 60 ))" "$(( SECONDS % 60 ))" "$C_RESET"
+    rule
 
     if [[ "$INTERRUPTED" == true ]]; then
-        echo "🛑 Stopped early — the steps after this one never ran."
+        printf '%sStopped early - the steps after this one never ran.%s\n' "$C_SKIP" "$C_RESET"
     elif (( fail > 0 )); then
-        echo "⚠️ Some updates did not go through — scroll up to the ❌ steps for their errors."
+        printf '%sSome updates did not go through - scroll up to the FAIL steps for their errors.%s\n' \
+            "$C_FAIL" "$C_RESET"
     else
-        echo "🎉 All updates completed successfully!"
+        printf '%sAll updates completed successfully.%s\n' "$C_OK" "$C_RESET"
     fi
     echo
+}
+
+# Packages this run put on hold, so the EXIT trap can put them back exactly as
+# it found them even if the run is interrupted.
+HELD_BY_US=()
+
+restore_holds() {
+    (( ${#HELD_BY_US[@]} == 0 )) && return 0
+    printf '%s>>%s releasing the temporary NVIDIA holds\n' "$C_HEAD" "$C_RESET"
+    sudo apt-mark unhold "${HELD_BY_US[@]}" >/dev/null 2>&1 || true
+    HELD_BY_US=()
 }
 
 # Ctrl-C stops the run, but still reports honestly: the step that was running
@@ -187,127 +291,196 @@ print_summary() {
 on_interrupt() {
     INTERRUPTED=true
     echo
-    echo "🛑 Interrupted."
+    printf '%sInterrupted.%s\n' "$C_SKIP" "$C_RESET"
     if [[ -n "$CURRENT_STEP" ]]; then
         record FAIL "$CURRENT_STEP" "interrupted by Ctrl-C"
         FAILED=$(( FAILED + 1 ))
         CURRENT_STEP=""
     fi
+    restore_holds
     print_summary
     exit 130
 }
 trap on_interrupt INT
 
-# Ask for the sudo password once, up front — then keep the timestamp fresh so no
+# Ask for the sudo password once, up front - then keep the timestamp fresh so no
 # prompt can appear in the middle of a long download.
 sudo -v || true
 ( while kill -0 "$$" 2>/dev/null; do sudo -n true 2>/dev/null; sleep 50; done ) &
 SUDO_KEEPALIVE_PID=$!
 
 cleanup() {
+    restore_holds
     [[ -n "${SUDO_KEEPALIVE_PID:-}" ]] && kill "$SUDO_KEEPALIVE_PID" 2>/dev/null
 }
 trap cleanup EXIT
 
 echo
-echo "============================================================"
-echo "🚀 Starting Full Fedora Update  (retries per step: $RETRIES)"
+rule
+printf '%s  %s %s%s\n' "$C_BOLD" "$PROGRAM" "$VERSION" "$C_RESET"
+printf '  %-9s %s\n' "System"  "${DISTRO}"
+printf '  %-9s %s\n' "Manager" "${PM##*/}"
 if [[ "$WITH_NVIDIA" == true ]]; then
-    echo "   ⚠️ NVIDIA drivers WILL be updated."
+    printf '  %-9s %s\n' "NVIDIA" "will be updated"
 else
-    echo "   ⏭️ NVIDIA drivers will be skipped (--with-nvidia to include them)."
+    printf '  %-9s %s\n' "NVIDIA" "held back (--with-nvidia to include)"
 fi
-echo "============================================================"
+printf '  %-9s %s\n' "Retries" "$RETRIES per step"
+rule
 
 
 # ==============================================================================
 # 1. Antigravity IDE Update
 # ==============================================================================
 
-if command -v antigravity-update.sh &> /dev/null; then
+AG_UPDATER=""
+for candidate in antigravity-update antigravity-update.sh; do
+    if command -v "$candidate" &> /dev/null; then
+        AG_UPDATER="$candidate"
+        break
+    fi
+done
+
+# Nothing about Antigravity is reported unless the IDE is actually installed.
+# Someone who does not use it should not see a step for it at all, whether or
+# not the updater happens to be on their PATH.
+if [[ -n "$AG_UPDATER" ]]; then
+    # --check exits 4 before touching the network when nothing is installed.
+    "$AG_UPDATER" --check >/dev/null 2>&1
+    ag_status=$?
+    case "$ag_status" in
+        0) skip_step "Antigravity IDE" "already up to date" ;;
+        3) retry_command "$AG_UPDATER --yes" "Antigravity IDE" ;;
+        4) : ;;   # not installed: not this machine's concern
+        *) skip_step "Antigravity IDE" "version check failed (exit $ag_status)" ;;
+    esac
+fi
+
+
+# ==============================================================================
+# 2. System packages - the run's one and only metadata refresh
+# ==============================================================================
+
+if [[ "$FAMILY" == rpm ]]; then
+
+    EXCLUDE_NVIDIA=""
+    if [[ "$WITH_NVIDIA" == false ]]; then
+        EXCLUDE_NVIDIA="--exclude=*nvidia* --exclude=*cuda*"
+    fi
+
     retry_command \
-        "antigravity-update.sh" \
-        "Antigravity IDE Update"
+        "sudo $PM upgrade -y --refresh $EXCLUDE_NVIDIA" \
+        "System Update (${PM##*/})"
+
 else
-    skip_step "Antigravity IDE Update" "antigravity-update.sh not found in PATH"
+
+    retry_command "sudo $PM update" "Package Lists Refresh"
+
+    # apt has no --exclude, so the equivalent is a hold for the length of the
+    # run. Packages that were already held stay held: they are not ours to
+    # release.
+    if [[ "$WITH_NVIDIA" == false ]]; then
+        mapfile -t already_held < <(apt-mark showhold 2>/dev/null)
+        mapfile -t nvidia_pkgs < <(
+            apt list --upgradable 2>/dev/null \
+              | awk -F/ 'NR > 1 { print $1 }' \
+              | grep -iE 'nvidia|cuda' || true
+        )
+        for pkg in "${nvidia_pkgs[@]}"; do
+            [[ -z "$pkg" ]] && continue
+            skip=false
+            for h in "${already_held[@]}"; do
+                [[ "$pkg" == "$h" ]] && { skip=true; break; }
+            done
+            $skip && continue
+            HELD_BY_US+=("$pkg")
+        done
+        if (( ${#HELD_BY_US[@]} > 0 )); then
+                printf '%s>>%s holding back for this run: %s\n' "$C_HEAD" "$C_RESET" "${HELD_BY_US[*]}"
+            sudo apt-mark hold "${HELD_BY_US[@]}" >/dev/null
+        fi
+    fi
+
+    retry_command \
+        "sudo DEBIAN_FRONTEND=noninteractive $PM full-upgrade -y" \
+        "System Update (apt)"
+
+    restore_holds
 fi
 
 
 # ==============================================================================
-# 2. DNF System Update
-# ==============================================================================
-
-EXCLUDE_NVIDIA=""
-if [[ "$WITH_NVIDIA" == false ]]; then
-    EXCLUDE_NVIDIA="--exclude=*nvidia* --exclude=*cuda*"
-fi
-
-retry_command \
-    "sudo dnf upgrade -y --refresh $EXCLUDE_NVIDIA" \
-    "DNF System Update"
-
-
-# ==============================================================================
-# 3. Firmware Update
+# 3. Firmware
 # ==============================================================================
 
 if command -v fwupdmgr &> /dev/null; then
-
-    retry_command \
-        "sudo fwupdmgr refresh --force" \
-        "Firmware Metadata Refresh"
-
-    retry_command \
-        "sudo fwupdmgr update -y" \
-        "Firmware Update"
-
+    retry_command "sudo fwupdmgr refresh --force" "Firmware Metadata Refresh"
+    retry_command "sudo fwupdmgr update -y"       "Firmware Update"
 else
     skip_step "Firmware Update" "fwupdmgr not installed"
 fi
 
 
 # ==============================================================================
-# 4. Flatpak Update
+# 4. Flatpak
 # ==============================================================================
 
 if command -v flatpak &> /dev/null; then
-
-    retry_command \
-        "flatpak update -y" \
-        "Flatpak Update"
-
+    retry_command "flatpak update -y" "Flatpak Update"
 else
     skip_step "Flatpak Update" "flatpak not installed"
 fi
 
 
 # ==============================================================================
-# 5. GNOME Extensions (listing only)
+# 5. Snap  (Ubuntu ships it; Fedora usually does not)
 # ==============================================================================
 
-# RPM-packaged extensions (gnome-shell-extension-*) were already upgraded by the
-# system update above — running dnf again for them only re-downloads every repo
-# to print "Nothing to do". So this section just lists what is installed.
+if command -v snap &> /dev/null; then
+    retry_command "sudo snap refresh" "Snap Update"
+else
+    skip_step "Snap Update" "snap not installed"
+fi
+
+
+# ==============================================================================
+# 6. GNOME Extensions (listing only)
+# ==============================================================================
+
+# Distribution-packaged extensions were already upgraded by the system update
+# above - running the package manager again for them only re-downloads every
+# repository to print "Nothing to do". So this section just lists what is there.
 if command -v gnome-extensions &> /dev/null; then
     echo
-    echo "📋 Installed GNOME Extensions:"
+    printf '%sInstalled GNOME extensions:%s\n' "$C_BOLD" "$C_RESET"
     gnome-extensions list || true
-    echo "ℹ️ Extensions from extensions.gnome.org update via GNOME Software."
+    printf '%sExtensions from extensions.gnome.org update via GNOME Software.%s\n' "$C_DIM" "$C_RESET"
 fi
 
 if [[ "$WITH_NVIDIA" == true ]]; then
     echo
-    echo "📋 Installed NVIDIA packages:"
-    sudo dnf list installed '*nvidia*' || true
+    printf '%sInstalled NVIDIA packages:%s\n' "$C_BOLD" "$C_RESET"
+    if [[ "$FAMILY" == rpm ]]; then
+        sudo "$PM" list installed '*nvidia*' || true
+    else
+        apt list --installed 2>/dev/null | grep -i nvidia || true
+    fi
 fi
 
 
 # ==============================================================================
-# 6. Cleanup
+# 7. Cleanup
 # ==============================================================================
 
-retry_command "sudo dnf autoremove -y" "Cleanup (autoremove)"  1
-retry_command "sudo dnf clean all"     "Cleanup (clean cache)" 1
+if [[ "$FAMILY" == rpm ]]; then
+    retry_command "sudo $PM autoremove -y" "Cleanup (autoremove)"  1
+    retry_command "sudo $PM clean all"     "Cleanup (clean cache)" 1
+else
+    retry_command "sudo DEBIAN_FRONTEND=noninteractive $PM autoremove -y --purge" \
+                                            "Cleanup (autoremove)"  1
+    retry_command "sudo $PM autoclean -y"   "Cleanup (autoclean)"   1
+    retry_command "sudo $PM clean"          "Cleanup (clean cache)" 1
+fi
 
 
 # ==============================================================================

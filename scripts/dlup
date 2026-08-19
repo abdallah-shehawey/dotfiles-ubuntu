@@ -1,0 +1,188 @@
+#!/usr/bin/env bash
+# dlup - download media with yt-dlp and push it straight to an rclone remote.
+set -euo pipefail
+
+VERSION="1.1.0"
+PROGRAM="${0##*/}"
+
+CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/dlup/config"
+
+remote="${DLUP_REMOTE:-}"
+cookies="${DLUP_COOKIES:-}"
+workdir="${DLUP_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/dlup}"
+jobs=5
+retries=10
+keep=false
+dry_run=false
+urls=()
+
+usage() {
+  cat <<USAGE
+${PROGRAM} - download media with yt-dlp and push it straight to an rclone remote
+
+USAGE:
+    ${PROGRAM} [OPTIONS] URL...
+    ${PROGRAM} [OPTIONS] -f LIST
+
+DESCRIPTION:
+    Downloads each URL with yt-dlp into a staging directory, uploads what
+    landed there to an rclone remote, and removes the local copy before moving
+    on. One video at a time, so a long list never fills the disk.
+
+    Each URL is downloaded into its own staging directory, so the upload always
+    knows exactly which files belong to it.
+
+OPTIONS:
+    -r, --remote REMOTE   rclone destination, e.g. gdrive:Recordings  (required)
+    -c, --cookies FILE    Cookie file to hand to yt-dlp, for sites that need
+                          you signed in
+    -d, --dir PATH        Staging directory (default: ${workdir})
+    -f, --from-file LIST  Read URLs from a file, one per line; blank lines and
+                          lines starting with # are ignored
+    -j, --jobs N          Concurrent fragments per download (default: ${jobs})
+        --retries N       Retries per download (default: ${retries})
+    -k, --keep            Keep the local copy after uploading
+    -n, --dry-run         Print what would happen and transfer nothing
+    -V, --version         Print version and exit
+    -h, --help            Show this help and exit
+
+CONFIGURATION:
+    ${CONFIG}
+    Shell-style key=value lines: remote, cookies, dir, jobs, retries.
+    Command-line options win over the config file, which wins over the
+    DLUP_REMOTE, DLUP_COOKIES and DLUP_DIR environment variables.
+
+EXIT STATUS:
+    0   every URL downloaded and uploaded
+    1   at least one URL failed
+    2   bad usage or a missing dependency
+
+EXAMPLES:
+    ${PROGRAM} -r gdrive:Recordings https://example.com/video
+    ${PROGRAM} -r gdrive:Recordings -c ~/cookies.txt -f links.txt
+USAGE
+}
+
+die() { printf '%s: %s\n' "$PROGRAM" "$1" >&2; exit "${2:-2}"; }
+
+# Config file first, so command-line options can override it.
+if [ -f "$CONFIG" ]; then
+  while IFS='=' read -r key value; do
+    key="${key%%#*}"; key="$(printf '%s' "$key" | tr -d '[:space:]')"
+    [ -z "$key" ] && continue
+    value="${value%\"}"; value="${value#\"}"
+    value="${value#"${value%%[![:space:]]*}"}"
+    value="${value%"${value##*[![:space:]]}"}"
+    case "$key" in
+      remote)  remote="$value" ;;
+      cookies) cookies="$value" ;;
+      dir)     workdir="$value" ;;
+      jobs)    jobs="$value" ;;
+      retries) retries="$value" ;;
+    esac
+  done < "$CONFIG"
+fi
+
+list_file=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -r|--remote)    [ -n "${2:-}" ] || die "--remote needs a value"; remote="$2"; shift 2 ;;
+    -c|--cookies)   [ -n "${2:-}" ] || die "--cookies needs a path"; cookies="$2"; shift 2 ;;
+    -d|--dir)       [ -n "${2:-}" ] || die "--dir needs a path"; workdir="$2"; shift 2 ;;
+    -f|--from-file) [ -n "${2:-}" ] || die "--from-file needs a path"; list_file="$2"; shift 2 ;;
+    -j|--jobs)      [ -n "${2:-}" ] || die "--jobs needs a number"; jobs="$2"; shift 2 ;;
+    --retries)      [ -n "${2:-}" ] || die "--retries needs a number"; retries="$2"; shift 2 ;;
+    -k|--keep)      keep=true; shift ;;
+    -n|--dry-run)   dry_run=true; shift ;;
+    -V|--version)   echo "${PROGRAM} ${VERSION}"; exit 0 ;;
+    -h|--help)      usage; exit 0 ;;
+    --)             shift; while [ $# -gt 0 ]; do urls+=("$1"); shift; done ;;
+    -*)             die "unknown option: $1" ;;
+    *)              urls+=("$1"); shift ;;
+  esac
+done
+
+if [ -n "$list_file" ]; then
+  [ -r "$list_file" ] || die "cannot read $list_file"
+  while IFS= read -r line || [ -n "$line" ]; do
+    line="${line%%#*}"
+    line="${line#"${line%%[![:space:]]*}"}"
+    line="${line%"${line##*[![:space:]]}"}"
+    [ -n "$line" ] && urls+=("$line")
+  done < "$list_file"
+fi
+
+[ ${#urls[@]} -gt 0 ] || { usage >&2; die "no URLs given"; }
+[ -n "$remote" ] || die "no rclone remote: pass --remote, set DLUP_REMOTE, or put remote= in $CONFIG"
+case "$jobs" in ''|*[!0-9]*) die "--jobs must be a number" ;; esac
+case "$retries" in ''|*[!0-9]*) die "--retries must be a number" ;; esac
+
+for dep in yt-dlp rclone; do
+  command -v "$dep" >/dev/null 2>&1 || die "$dep is not installed" 2
+done
+[ -n "$cookies" ] && [ ! -r "$cookies" ] && die "cannot read cookie file: $cookies"
+
+mkdir -p "$workdir"
+
+total=${#urls[@]}
+index=0
+failed=0
+
+for url in "${urls[@]}"; do
+  index=$((index + 1))
+  printf '\n[%d/%d] %s\n' "$index" "$total" "$url"
+
+  if [ "$dry_run" = true ]; then
+    printf '  would download into %s and upload to %s\n' "$workdir" "$remote"
+    continue
+  fi
+
+  # Its own directory per URL: the original picked "the newest file in the
+  # download folder", which guesses wrong the moment a download produces more
+  # than one file or the folder has anything left over in it.
+  stage="$(mktemp -d "${workdir}/dlup.XXXXXXXX")"
+
+  yt_args=(
+    --continue --no-part
+    --concurrent-fragments "$jobs"
+    --retries "$retries"
+    --fragment-retries "$retries"
+    --file-access-retries "$retries"
+    --output "${stage}/%(title)s.%(ext)s"
+  )
+  [ -n "$cookies" ] && yt_args+=(--cookies "$cookies")
+
+  if ! yt-dlp "${yt_args[@]}" "$url"; then
+    printf '  download failed\n' >&2
+    failed=$((failed + 1))
+    rm -rf "$stage"
+    continue
+  fi
+
+  if [ -z "$(ls -A "$stage" 2>/dev/null)" ]; then
+    printf '  nothing was downloaded\n' >&2
+    failed=$((failed + 1))
+    rmdir "$stage" 2>/dev/null || true
+    continue
+  fi
+
+  printf '  uploading to %s\n' "$remote"
+  if ! rclone copy "$stage" "$remote" -P; then
+    printf '  upload failed, local copy kept at %s\n' "$stage" >&2
+    failed=$((failed + 1))
+    continue
+  fi
+
+  if [ "$keep" = true ]; then
+    printf '  kept locally in %s\n' "$stage"
+  else
+    rm -rf "$stage"
+  fi
+done
+
+echo
+if [ "$failed" -gt 0 ]; then
+  printf '%s: %d of %d failed\n' "$PROGRAM" "$failed" "$total" >&2
+  exit 1
+fi
+printf '%s: all %d done\n' "$PROGRAM" "$total"
