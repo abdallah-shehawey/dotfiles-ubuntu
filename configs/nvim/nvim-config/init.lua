@@ -85,9 +85,16 @@ P.S. You can delete this when you're done too. It's your config now! :)
 --]]
 
 -- Set relative number
-vim.opt.relativenumber = true
-vim.opt.number = true
+vim.o.relativenumber = true
+vim.o.number = true
+vim.o.mouse = 'a'
 
+-- No installed plugin uses the remote-plugin providers, so turn them off instead
+-- of paying for the health-check probes (and the pynvim/perl warnings).
+vim.g.loaded_python3_provider = 0
+vim.g.loaded_node_provider = 0
+vim.g.loaded_perl_provider = 0
+vim.g.loaded_ruby_provider = 0
 -- Set <space> as the leader key
 -- See `:help mapleader`
 --  NOTE: Must happen before plugins are loaded (otherwise wrong leader will be used)
@@ -258,6 +265,10 @@ require('lazy').setup({
   --
   { -- VSCode theme
     'Mofiqul/vscode.nvim',
+    -- Must load before lualine: `load()` below runs `hi clear`, which would wipe
+    -- lualine's highlight groups if lualine had already built them.
+    lazy = false,
+    priority = 1000,
     config = function()
       local c = require('vscode.colors').get_colors()
       require('vscode').setup {
@@ -273,6 +284,12 @@ require('lazy').setup({
         },
       }
       require('vscode').load()
+
+      -- vscode.nvim applies its palette by hand (`hi clear` + `nvim_set_hl`) instead
+      -- of going through `:colorscheme`, so the ColorScheme event never fires and
+      -- anything that rebuilds highlights on that event never hears about it.
+      -- Fire it ourselves so lualine restores its groups no matter the load order.
+      vim.api.nvim_exec_autocmds('ColorScheme', { pattern = 'vscode' })
     end,
   },
   {
@@ -301,6 +318,8 @@ require('lazy').setup({
     config = function()
       require('lualine').setup {
         options = {
+          -- NOTE: keep this explicit. `'auto'` resolves to the grey theme that
+          -- vscode.nvim ships (lua/lualine/themes/vscode.lua), not this one.
           theme = 'onedark',
           section_separators = { left = '', right = '' },
           component_separators = { left = '', right = '' },
@@ -328,6 +347,43 @@ require('lazy').setup({
         },
       }
     end,
+  },
+  {
+    'petertriho/nvim-scrollbar',
+    event = 'BufReadPost',
+    config = function()
+      require('scrollbar').setup {
+        show = true,
+        handle = {
+          text = ' ',
+        },
+      }
+    end,
+  },
+  { -- Smooth cursor movement, like VS Code's "smooth caret animation"
+    'sphamba/smear-cursor.nvim',
+    event = 'VeryLazy',
+    opts = {
+      -- Snappier than the plugin defaults: VS Code's caret glides, it doesn't
+      -- drag a long tail. Defaults are 0.6 / 0.45 / 0.5 / 0.5 / 0.85 / 0.9 / 0.1.
+      stiffness = 0.8,
+      trailing_stiffness = 0.6,
+      damping = 0.95,
+      distance_stop_animating = 0.5,
+
+      -- Insert mode: typing moves the caret one column at a time, so the smear has
+      -- to keep animating over sub-character distances or you see nothing. The
+      -- default cutoff of 0.875 stops it almost immediately.
+      stiffness_insert_mode = 0.6,
+      trailing_stiffness_insert_mode = 0.4,
+      damping_insert_mode = 0.9,
+      distance_stop_animating_vertical_bar = 0.1,
+
+      -- NOTE: `legacy_computing_symbols_support` stays off on purpose. Those block
+      -- glyphs (U+1FB00..) would blend the smear better, but the terminal font here
+      -- (Noto Sans Mono, via tilix's "Monospace") has no coverage for them, so they
+      -- would render as tofu boxes.
+    },
   },
 
   -- Use `opts = {}` to automatically pass options to a plugin's `setup()` function, forcing the plugin to be loaded.
@@ -733,6 +789,10 @@ require('lazy').setup({
       --  So, we create new capabilities with blink.cmp, and then broadcast that to the servers.
       local capabilities = require('blink.cmp').get_lsp_capabilities()
 
+      -- `*` is the wildcard config: every server resolved through `vim.lsp.config`
+      -- inherits these capabilities.
+      vim.lsp.config('*', { capabilities = capabilities })
+
       -- Enable the following language servers
       --  Feel free to add/remove any LSPs that you want here. They will automatically be installed.
       --
@@ -743,7 +803,9 @@ require('lazy').setup({
       --  - settings (table): Override the default settings passed when initializing the server.
       --        For example, to see the options for `lua_ls`, you could go to: https://luals.github.io/wiki/settings/
       local servers = {
-        -- clangd = {},
+        clangd = {
+          cmd = { 'clangd', '--header-insertion=never', '--inlay-hints=false' },
+        },
         -- gopls = {},
         -- pyright = {},
         -- rust_analyzer = {},
@@ -785,25 +847,35 @@ require('lazy').setup({
       --
       -- You can add other tools here that you want Mason to install
       -- for you, so that they are available from within Neovim.
-      local ensure_installed = vim.tbl_keys(servers or {})
+      -- clangd comes from the system package (`/usr/bin/clangd`), so Mason must
+      -- not download a second copy of it.
+      local ensure_installed = vim.tbl_filter(function(name)
+        return name ~= 'clangd'
+      end, vim.tbl_keys(servers))
       vim.list_extend(ensure_installed, {
         'stylua', -- Used to format Lua code
       })
-      require('mason-tool-installer').setup { ensure_installed = ensure_installed }
+      require('mason-tool-installer').setup {
+        ensure_installed = ensure_installed,
+        -- Same reasoning as treesitter's `auto_install`: a root session reads
+        -- the user's Mason install, it never writes to it.
+        run_on_start = (vim.uv or vim.loop).getuid() ~= 0,
+      }
+
+      -- Register the overrides above and turn each server on. `vim.lsp.config`
+      -- merges on top of the defaults shipped by nvim-lspconfig and the `*`
+      -- capabilities set earlier.
+      for server_name, server in pairs(servers) do
+        vim.lsp.config(server_name, server)
+        vim.lsp.enable(server_name)
+      end
 
       require('mason-lspconfig').setup {
         ensure_installed = {}, -- explicitly set to an empty table (Kickstart populates installs via mason-tool-installer)
-        automatic_installation = false,
-        handlers = {
-          function(server_name)
-            local server = servers[server_name] or {}
-            -- This handles overriding only values explicitly passed
-            -- by the server configuration above. Useful when disabling
-            -- certain features of an LSP (for example, turning off formatting for ts_ls)
-            server.capabilities = vim.tbl_deep_extend('force', {}, capabilities, server.capabilities or {})
-            vim.lsp.config[server_name].setup(server)
-          end,
-        },
+        -- stylua ships an LSP mode, so Mason would otherwise start it as a server on
+        -- every Lua buffer -- a second formatting provider on top of conform.nvim,
+        -- which already runs the stylua binary.
+        automatic_enable = { exclude = { 'stylua' } },
       }
     end,
   },
@@ -963,10 +1035,9 @@ require('lazy').setup({
         },
       }
 
-      -- Load the colorscheme here.
-      -- Like many other themes, this one has different styles, and you could load
-      -- any other, such as 'tokyonight-storm', 'tokyonight-moon', or 'tokyonight-day'.
-      vim.cmd.colorscheme 'tokyonight-night'
+      -- NOTE: not activated. vscode.nvim is the active colorscheme; two plugins
+      -- both calling `colorscheme` at priority 1000 would race each other.
+      -- Kept installed so `:colorscheme tokyonight-night` still works on demand.
     end,
   },
 
@@ -993,20 +1064,9 @@ require('lazy').setup({
       -- - sr)'  - [S]urround [R]eplace [)] [']
       require('mini.surround').setup()
 
-      -- Simple and easy statusline.
-      --  You could remove this setup call if you don't like it,
-      --  and try some other statusline plugin
-      local statusline = require 'mini.statusline'
-      -- set use_icons to true if you have a Nerd Font
-      statusline.setup { use_icons = vim.g.have_nerd_font }
-
-      -- You can configure sections in the statusline by overriding their
-      -- default behavior. For example, here we set the section for
-      -- cursor location to LINE:COLUMN
-      ---@diagnostic disable-next-line: duplicate-set-field
-      statusline.section_location = function()
-        return '%2l:%-2v'
-      end
+      -- NOTE: mini.statusline is intentionally not set up here -- lualine (configured
+      -- above) already owns the statusline, and running both makes them fight over
+      -- `vim.o.statusline`.
 
       -- ... and there is more!
       --  Check out: https://github.com/echasnovski/mini.nvim
@@ -1015,12 +1075,13 @@ require('lazy').setup({
   { -- Highlight, edit, and navigate code
     'nvim-treesitter/nvim-treesitter',
     build = ':TSUpdate',
-    main = 'nvim-treesitter.configs', -- Sets main module to use for opts
     -- [[ Configure Treesitter ]] See `:help nvim-treesitter`
     opts = {
       ensure_installed = { 'bash', 'c', 'diff', 'html', 'lua', 'luadoc', 'markdown', 'markdown_inline', 'query', 'vim', 'vimdoc' },
-      -- Autoinstall languages that are not installed
-      auto_install = true,
+      -- Autoinstall languages that are not installed. Disabled for root
+      -- (`sudo nvim` shares this very plugin tree) so a root session can never
+      -- leave root-owned parser .so files behind in the user's home.
+      auto_install = (vim.uv or vim.loop).getuid() ~= 0,
       highlight = {
         enable = true,
         -- Some languages depend on vim's regex highlighting system (such as Ruby) for indent rules.
@@ -1030,6 +1091,17 @@ require('lazy').setup({
       },
       indent = { enable = true, disable = { 'ruby' } },
     },
+    -- `main = 'nvim-treesitter.configs'` used to do the setup call below. It is
+    -- spelled out so the compatibility shim can be applied straight after:
+    -- nvim-treesitter's master branch registers query handlers written against
+    -- the pre-0.11 API, and ours have to be the ones that win.
+    config = function(_, opts)
+      require('nvim-treesitter.configs').setup(opts)
+
+      -- Force the plugin's own registrations to happen now, then override them.
+      pcall(require, 'nvim-treesitter.query_predicates')
+      require('custom.treesitter-compat').setup()
+    end,
     -- There are additional nvim-treesitter modules that you can use to interact
     -- with nvim-treesitter. You should go explore a few and see what interests you:
     --
@@ -1065,6 +1137,13 @@ require('lazy').setup({
   -- In normal mode type `<space>sh` then write `lazy.nvim-plugin`
   -- you can continue same window with `<space>sr` which resumes last telescope search
 }, {
+  -- No plugin in this config needs luarocks, and the hererocks bootstrap it would
+  -- otherwise install fails on this machine (`:checkhealth lazy` error).
+  rocks = { enabled = false },
+  -- A root session (`sudo nvim`) loads this config and this plugin tree from
+  -- the user's home. Installing from there as root would leave root-owned
+  -- files behind, so missing plugins are only fetched by the real user.
+  install = { missing = (vim.uv or vim.loop).getuid() ~= 0 },
   ui = {
     -- If you are using a Nerd Font: set icons to an empty table which will use the
     -- default lazy.nvim defined Nerd Font icons, otherwise define a unicode icons table
@@ -1088,5 +1167,3 @@ require('lazy').setup({
 
 -- The line beneath this is called `modeline`. See `:help modeline`
 -- vim: ts=2 sts=2 sw=2 et
---
-require 'clangd'

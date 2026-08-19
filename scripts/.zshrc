@@ -1,6 +1,14 @@
 # ~/.zshrc file for zsh interactive shells.
 
 # see /usr/share/doc/zsh/examples/zshrc for examples
+# Editing root-owned files: sudoedit copies the file to a temp path, opens it in
+# YOUR nvim (full config, plugins, LSP) as your own user, then writes it back as
+# root. Nothing plugin-heavy ever runs as root.
+#   svim /etc/fstab      instead of      sudo nvim /etc/fstab
+export EDITOR=nvim
+export SUDO_EDITOR=nvim
+alias svim='sudoedit'
+
 alias clang-format="clang-format -style=file:/home/abdallah-shehawey/.clang-format"
 alias update='sudo dnf update'
 alias install='sudo dnf install'

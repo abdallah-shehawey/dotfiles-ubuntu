@@ -1,13 +1,45 @@
-
 # ~/.zshrc file for zsh interactive shells.
 
 # see /usr/share/doc/zsh/examples/zshrc for examples
-alias clang-format="clang-format -style=file:/home/abdallah-shehawey/.clang-format"
+# Editing root-owned files: sudoedit copies the file to a temp path, opens it in
+# YOUR nvim (full config, plugins, LSP) as your own user, then writes it back as
+# root. Nothing plugin-heavy ever runs as root.
+#   svim /etc/fstab      instead of      sudo nvim /etc/fstab
+export EDITOR=nvim
+export SUDO_EDITOR=nvim
+alias svim='sudoedit'
 
+alias clang-format="clang-format -style=file:/home/abdallah-shehawey/.clang-format"
+alias update='sudo dnf update'
+alias install='sudo dnf install'
+alias remove='sudo dnf remove'
+alias please='sudo'
+alias prime-run="__NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia"
+alias export-st="PATH=/opt/st/stm32cubeide_2.0.0/plugins/com.st.stm32cube.ide.mcu.externaltools.gnu-tools-for-stm32.13.3.rel1.linux64_1.0.100.202509120712/tools/bin:$PATH"
+alias gp='cd /media/Local-Disk/Data/Graduation-Project && code --reuse-window'
+alias pant="pkill -9 antigravity"
+alias pdis="pkill -9 Discord"
+alias q="exit"
+trash() {
+    local TRASH="$HOME/.local/share/Trash/files"
+
+    mkdir -p "$TRASH"
+
+    local args=()
+    for arg in "$@"; do
+        case "$arg" in
+            -r|-f|-rf|-fr) ;;
+            *) args+=("$arg") ;;
+        esac
+    done
+
+    # انقل للـ Trash
+    mv -t "$TRASH" -- "${args[@]}"
+}
 
  
 setopt autocd              # change directory just by typing its name
-#setopt correct            # auto correct mistakes
+#setopt correct             # auto correct mistakes
 setopt interactivecomments # allow comments in interactive mode
 setopt magicequalsubst     # enable filename expansion for arguments of the form ‘anything=expression’
 setopt nonomatch           # hide error message if there is no match for the pattern
@@ -95,7 +127,8 @@ if [ -n "$force_color_prompt" ]; then
         color_prompt=
     fi
 fi
- 
+
+
 configure_prompt() {
     prompt_symbol=㉿
     # Skull emoji for root terminal
@@ -166,8 +199,8 @@ if [ "$color_prompt" = yes ]; then
         ZSH_HIGHLIGHT_STYLES[double-hyphen-option]=fg=green
         ZSH_HIGHLIGHT_STYLES[back-quoted-argument]=none
         ZSH_HIGHLIGHT_STYLES[back-quoted-argument-delimiter]=fg=blue,bold
-        ZSH_HIGHLIGHT_STYLES[single-quoted-argument]=fg=yellow
-        ZSH_HIGHLIGHT_STYLES[double-quoted-argument]=fg=yellow
+        ZSH_HIGHLIGHT_STYLES[single-quoted-argument]=fg=green
+        ZSH_HIGHLIGHT_STYLES[double-quoted-argument]=fg=green
         ZSH_HIGHLIGHT_STYLES[dollar-quoted-argument]=fg=yellow
         ZSH_HIGHLIGHT_STYLES[rc-quote]=fg=magenta
         ZSH_HIGHLIGHT_STYLES[dollar-double-quoted-argument]=fg=magenta,bold
@@ -264,7 +297,7 @@ fi
  
 # some more ls aliases
 alias ll='ls -l'
-alias la='ls -A'
+alias la='ls -lth'
 alias l='ls -CF'
  
 # enable auto-suggestions based on the history
@@ -278,4 +311,51 @@ fi
 if [ -f /etc/zsh_command_not_found ]; then
     . /etc/zsh_command_not_found
 fi
-compinit
+
+[ -f ~/.fzf.zsh ] && source ~/.fzf.zsh
+
+export NVM_DIR="$HOME/.nvm"
+
+nvm() {
+  unset -f nvm
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  nvm "$@"
+}
+
+node() {
+  unset -f node
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  node "$@"
+}
+
+npm() {
+  unset -f npm
+  [ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
+  npm "$@"
+}
+if [[ -n "$DISTROBOX_ENTER_PATH" ]]; then
+    source /usr/share/zsh/plugins/zsh-autosuggestions/zsh-autosuggestions.zsh
+    source /usr/share/zsh/plugins/zsh-syntax-highlighting/zsh-syntax-highlighting.zsh
+fi
+export PATH=$HOME/.local/bin:$PATH
+
+# ---------- meet dynamic commands ----------
+
+meet_file="$HOME/.meet/links"
+
+# completion function for meet
+_meet_list() {
+    reply=($(awk '{print $1}' "$meet_file" 2>/dev/null))
+}
+
+# autocomplete for: meet <name>
+compctl -K _meet_list meet
+
+# create dynamic commands
+while read -r name url; do
+    eval "
+    $name() {
+        meet $name
+    }
+    "
+done < "$meet_file"
