@@ -19,7 +19,7 @@ set -uo pipefail
 # for the shell to expand against the current directory.
 set -f
 
-VERSION="2.1.0"
+VERSION="2.2.1"
 PROGRAM="${0##*/}"
 
 # ==============================================================================
@@ -196,13 +196,14 @@ retry_command() {
             return 0
         fi
 
-        printf '%s[%s]%s %s (attempt %d/%d, exit %d)\n' \
-            "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$attempt" "$max" "$status"
-        attempt=$(( attempt + 1 ))
-
-        if (( attempt <= max )); then
+        if (( attempt < max )); then
+            printf '%s[%s]%s %s (attempt %d/%d, exit %d)\n' \
+                "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$attempt" "$max" "$status"
             printf '%s   retrying in %ds...%s\n' "$C_DIM" "$RETRY_DELAY" "$C_RESET"
             sleep "$RETRY_DELAY"
+            attempt=$(( attempt + 1 ))
+        else
+            break
         fi
     done
 
@@ -444,7 +445,30 @@ fi
 
 
 # ==============================================================================
-# 6. GNOME Extensions (listing only)
+# 6. Ubuntu Pro security status  (deb systems that have it)
+# ==============================================================================
+
+# Reporting only. `pro` covers the ESM archives that a plain full-upgrade does
+# not, and whether to enable them is a decision, not something a bulk update
+# script should make for you.
+if [[ "$FAMILY" == deb ]] && command -v pro &> /dev/null; then
+    echo
+    printf '%sUbuntu Pro security status:%s\n' "$C_BOLD" "$C_RESET"
+    pro security-status 2>/dev/null || true
+fi
+
+
+# ==============================================================================
+# 7. Drivers  (only when NVIDIA is explicitly opted into)
+# ==============================================================================
+
+if [[ "$WITH_NVIDIA" == true ]] && [[ "$FAMILY" == deb ]] && command -v ubuntu-drivers &> /dev/null; then
+    retry_command "sudo ubuntu-drivers install" "Driver Update (ubuntu-drivers)" 1
+fi
+
+
+# ==============================================================================
+# 8. GNOME Extensions (listing only)
 # ==============================================================================
 
 # Distribution-packaged extensions were already upgraded by the system update
@@ -469,7 +493,7 @@ fi
 
 
 # ==============================================================================
-# 7. Cleanup
+# 9. Cleanup
 # ==============================================================================
 
 if [[ "$FAMILY" == rpm ]]; then

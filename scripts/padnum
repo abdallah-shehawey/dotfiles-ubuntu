@@ -2,7 +2,7 @@
 
 shopt -s nullglob
 
-PADNUM_VERSION="1.2.0"
+PADNUM_VERSION="1.3.0"
 
 MAX_UNDO=10
 UNDO_FILE=".padnum.undo"
@@ -17,17 +17,22 @@ use_color=true
 [[ -t 1 ]] || use_color=false
 [[ -n "${NO_COLOR:-}" ]] && use_color=false
 
+target_dir=""
+
 show_help() {
 cat << 'EOF'
 padnum - Smart numeric prefix formatter for files
 
 USAGE:
-    padnum [OPTIONS]
+    padnum [OPTIONS] [DIRECTORY]
 
 DESCRIPTION:
     padnum detects numeric prefixes at the beginning of filenames,
     applies zero-padding, and preserves the rest of the filename exactly
     as-is (Arabic, spaces, underscores, dots, etc).
+
+    If DIRECTORY is specified, padnum operates on files in that directory;
+    otherwise, it operates on the current working directory.
 
 OPTIONS:
     -p, --padding N       Set fixed padding width (e.g., 3 → 001)
@@ -60,14 +65,16 @@ FEATURES:
     • Multi-level undo (up to 10)
     • Colorized readable history
     • Safe operation (ignores files not starting with numbers)
+    • Operates on current directory or any specified target directory
 
 EXAMPLES:
     padnum
-    padnum -p 3
-    padnum --sep "-"
-    padnum --ext mp4
-    padnum --undo 2
-    padnum --history
+    padnum /path/to/folder
+    padnum -p 3 ./videos
+    padnum --sep "-" /media/music
+    padnum --ext mp4 my_series/
+    padnum --undo 2 /path/to/folder
+    padnum --history /path/to/folder
 
 EOF
 }
@@ -110,15 +117,53 @@ while [[ $# -gt 0 ]]; do
             echo "padnum $PADNUM_VERSION"
             exit 0
             ;;
-        --no-color|--no-colour)
+        --no-color)
             use_color=false; shift ;;
-        *)
+        --)
+            shift
+            while [[ $# -gt 0 ]]; do
+                if [[ -z "$target_dir" ]]; then
+                    target_dir="$1"
+                else
+                    echo "padnum: too many arguments: '$1'" >&2
+                    echo "Usage: padnum [OPTIONS] [DIRECTORY]" >&2
+                    exit 2
+                fi
+                shift
+            done
+            break
+            ;;
+        -*)
             echo "padnum: unknown option: $1" >&2
-            echo "Usage: padnum [-n] [-p N] [--ext EXT] [--sep SEP] [--undo [N]] [--history] [--no-color] [-h] [-V]" >&2
+            echo "Usage: padnum [OPTIONS] [DIRECTORY]" >&2
             exit 2
+            ;;
+        *)
+            if [[ -z "$target_dir" ]]; then
+                target_dir="$1"
+                shift
+            else
+                echo "padnum: too many arguments: '$1'" >&2
+                echo "Usage: padnum [OPTIONS] [DIRECTORY]" >&2
+                exit 2
+            fi
             ;;
     esac
 done
+
+# -------------------------------------------------
+# Validate and switch target directory
+# -------------------------------------------------
+if [[ -n "$target_dir" ]]; then
+    if [[ ! -d "$target_dir" ]]; then
+        echo "padnum: cannot access '$target_dir': No such directory" >&2
+        exit 2
+    fi
+    if ! cd -- "$target_dir" 2>/dev/null; then
+        echo "padnum: cannot change directory to '$target_dir'" >&2
+        exit 2
+    fi
+fi
 
 # -------------------------------------------------
 # Show history
@@ -181,7 +226,13 @@ if $show_history; then
             }
         }
     }
-    ' "$UNDO_FILE" | { command -v less >/dev/null 2>&1 && less -R || cat; }
+    ' "$UNDO_FILE" | {
+        if [[ -t 1 && -t 0 && "${TERM:-}" != "dumb" ]] && command -v less >/dev/null 2>&1; then
+            less -RFX
+        else
+            cat
+        fi
+    }
     
     exit 0
 fi
@@ -247,22 +298,11 @@ if [[ -z "$padding" ]]; then
 fi
 
 timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
-tmp_undo=""
+renamed_count=0
+tmp_current=""
 
 if ! $dry_run; then
-    tmp_undo="$(mktemp)"
-
-    # -------------------------------------------------
-    # Rotate undo history
-    # -------------------------------------------------
-    if [[ -f "$UNDO_FILE" ]]; then
-        awk -v max="$MAX_UNDO" '
-            /^# UNDO / { c++ }
-            c <= max
-        ' "$UNDO_FILE" >> "$tmp_undo"
-    fi
-
-    echo "# UNDO 1 | $timestamp" > "$UNDO_FILE"
+    tmp_current="$(mktemp)"
 fi
 
 # -------------------------------------------------
@@ -286,12 +326,27 @@ for file in *; do
     if $dry_run; then
         echo mv "$file" ">>>" "$new_name"
     else
-        echo -e "$file\t$new_name" >> "$UNDO_FILE"
+        echo -e "$file\t$new_name" >> "$tmp_current"
         mv -n -- "$file" "$new_name"
+        ((renamed_count++))
     fi
 done
 
 if ! $dry_run; then
-    cat "$tmp_undo" >> "$UNDO_FILE"
-    rm -f "$tmp_undo"
+    if (( renamed_count > 0 )); then
+        tmp_final="$(mktemp)"
+        echo "# UNDO 1 | $timestamp" > "$tmp_final"
+        cat "$tmp_current" >> "$tmp_final"
+
+        if [[ -f "$UNDO_FILE" ]]; then
+            awk -v max="$MAX_UNDO" '
+                BEGIN { c=1 }
+                /^# UNDO / { c++ }
+                c <= max { print }
+            ' "$UNDO_FILE" >> "$tmp_final"
+        fi
+
+        mv "$tmp_final" "$UNDO_FILE"
+    fi
+    rm -f "$tmp_current"
 fi
