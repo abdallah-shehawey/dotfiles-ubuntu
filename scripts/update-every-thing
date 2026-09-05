@@ -11,7 +11,9 @@
 #
 # A step that fails is retried a bounded number of times and then given up on,
 # so the run always reaches the end and you get one summary instead of
-# discovering a failure three commands later.
+# discovering a failure three commands later. Only failures that could go away
+# on their own are repeated: a transaction the package manager cannot resolve is
+# reported once, not five times.
 
 set -uo pipefail
 
@@ -19,7 +21,7 @@ set -uo pipefail
 # for the shell to expand against the current directory.
 set -f
 
-VERSION="2.2.1"
+VERSION="2.2.2"
 PROGRAM="${0##*/}"
 
 # ==============================================================================
@@ -170,12 +172,25 @@ record() {
 # runs exactly as if you had typed it yourself, and the summary at the end
 # records which step failed and with what exit code - its error text is already
 # on screen, right above.
+#
+# [probe] is a command asked, after a failed attempt, whether another one is
+# worth making. Repeating a step only makes sense when the failure could go away
+# by itself - a mirror that timed out, a connection that dropped. A transaction
+# the package manager cannot even resolve fails identically every time, and
+# repeating it just scrolls the real error off the screen, so the probe says so,
+# the loop stops there, and the reason goes into the summary. A probe returns 0
+# to allow another attempt and non-zero to stop, setting GIVE_UP_REASON.
+GIVE_UP_REASON=""
+
 retry_command() {
     local cmd="$1"
     local name="$2"
     local max="${3:-$RETRIES}"
+    local probe="${4:-}"
     local attempt=1
     local status=0
+
+    GIVE_UP_REASON=""
 
     while (( attempt <= max )); do
         echo
@@ -199,6 +214,11 @@ retry_command() {
         if (( attempt < max )); then
             printf '%s[%s]%s %s (attempt %d/%d, exit %d)\n' \
                 "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$attempt" "$max" "$status"
+
+            if [[ -n "$probe" ]] && ! eval "$probe"; then
+                break
+            fi
+
             printf '%s   retrying in %ds...%s\n' "$C_DIM" "$RETRY_DELAY" "$C_RESET"
             sleep "$RETRY_DELAY"
             attempt=$(( attempt + 1 ))
@@ -207,9 +227,15 @@ retry_command() {
         fi
     done
 
-    printf '%s[%s]%s %s - gave up after %d attempt(s)\n' \
-        "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$max"
-    record FAIL "$name" "gave up after $max attempt(s), exit $status"
+    if [[ -n "$GIVE_UP_REASON" ]]; then
+        printf '%s[%s]%s %s - %s\n' \
+            "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$GIVE_UP_REASON"
+        record FAIL "$name" "$GIVE_UP_REASON (exit $status)"
+    else
+        printf '%s[%s]%s %s - gave up after %d attempt(s)\n' \
+            "$C_FAIL" "$MARK_FAIL" "$C_RESET" "$name" "$max"
+        record FAIL "$name" "gave up after $max attempt(s), exit $status"
+    fi
     FAILED=$(( FAILED + 1 ))
     return 1
 }
@@ -342,6 +368,19 @@ for candidate in antigravity-update antigravity-update.sh; do
     fi
 done
 
+# Where the IDE lives, for the case where the updater is missing and cannot be
+# asked. Same three prefixes antigravity-update itself looks in.
+antigravity_installed() {
+    command -v antigravity     &> /dev/null && return 0
+    command -v antigravity-ide &> /dev/null && return 0
+    local dir
+    for dir in /usr/share/antigravity-ide /opt/antigravity-ide \
+               "${XDG_DATA_HOME:-$HOME/.local/share}/antigravity-ide"; do
+        [[ -f "$dir/resources/app/product.json" ]] && return 0
+    done
+    return 1
+}
+
 # Nothing about Antigravity is reported unless the IDE is actually installed.
 # Someone who does not use it should not see a step for it at all, whether or
 # not the updater happens to be on their PATH.
@@ -355,6 +394,11 @@ if [[ -n "$AG_UPDATER" ]]; then
         4) : ;;   # not installed: not this machine's concern
         *) skip_step "Antigravity IDE" "version check failed (exit $ag_status)" ;;
     esac
+elif antigravity_installed; then
+    # The IDE is here but its updater is not, so this run would quietly leave it
+    # behind - which is worse than saying so. It is one package away from
+    # working again, so the summary names it instead of hiding the whole step.
+    skip_step "Antigravity IDE" "antigravity-update not installed - ${PM##*/} install antigravity-update"
 fi
 
 
@@ -364,14 +408,67 @@ fi
 
 if [[ "$FAMILY" == rpm ]]; then
 
+    # NVIDIA is held back by naming the installed driver packages, never with a
+    # *nvidia* glob. The glob also caught kmod-nvidia-<kernel-version>, the
+    # module built for one specific kernel - and a package the solver may not
+    # touch is one it may not erase either. So the first time the oldest kernel
+    # was due to be retired, the module built for it had to go with it, could
+    # not, and the entire transaction died on "requires kernel-uname-r = ...,
+    # but none of the providers can be installed" - with every other update in
+    # it. The per-kernel modules follow their kernel; only the driver is held.
     EXCLUDE_NVIDIA=""
-    if [[ "$WITH_NVIDIA" == false ]]; then
-        EXCLUDE_NVIDIA="--exclude=*nvidia* --exclude=*cuda*"
+    if [[ "$WITH_NVIDIA" == false ]] && command -v rpm &> /dev/null; then
+        held_count=0
+        while read -r pkg; do
+            [[ -z "$pkg" ]] && continue
+            EXCLUDE_NVIDIA+=" --exclude=$pkg"
+            held_count=$(( held_count + 1 ))
+        done < <(rpm -qa --queryformat '%{NAME}\n' 2>/dev/null \
+                   | grep -iE 'nvidia|cuda' \
+                   | grep -v '^kmod-' \
+                   | sort -u)
+        if (( held_count > 0 )); then
+            printf '%s>>%s holding back %d NVIDIA/CUDA package(s) %s(their per-kernel modules still follow the kernel)%s\n' \
+                "$C_HEAD" "$C_RESET" "$held_count" "$C_DIM" "$C_RESET"
+        fi
     fi
 
+    # --refresh downloads every repository's metadata. A retry does not need a
+    # second copy of it: it is already as fresh as this run is going to make it,
+    # and on a slow line re-downloading it is the most expensive part of the
+    # attempt. So only the first attempt refreshes. Metadata that failed to
+    # download is not in the cache and gets fetched anyway.
+    RPM_REFRESHED=false
+    rpm_system_update() {
+        local refresh=""
+        if [[ "$RPM_REFRESHED" == false ]]; then
+            refresh="--refresh"
+            RPM_REFRESHED=true
+        fi
+        sudo "$PM" upgrade -y $refresh $EXCLUDE_NVIDIA
+    }
+
+    # Asked after a failed attempt. It re-runs the solve alone: -C keeps it in
+    # the cache, so it costs no bandwidth, and --assumeno answers the
+    # confirmation, so nothing is installed. A solver that cannot resolve the
+    # transaction says so in the same words however many times you ask it.
+    rpm_update_worth_retrying() {
+        local log problem
+        log="$(mktemp -t update-every-thing.XXXXXX)" || return 0
+        sudo "$PM" -C --assumeno upgrade $EXCLUDE_NVIDIA > "$log" 2>&1
+        problem="$(grep -m1 -E '^[[:space:]]*Problem' "$log" | sed 's/^[[:space:]]*//')"
+        rm -f "$log"
+        [[ -z "$problem" ]] && return 0
+        printf '%s   %s%s\n' "$C_DIM" "$problem" "$C_RESET"
+        GIVE_UP_REASON="the transaction does not resolve - not retried"
+        return 1
+    }
+
     retry_command \
-        "sudo $PM upgrade -y --refresh $EXCLUDE_NVIDIA" \
-        "System Update (${PM##*/})"
+        "rpm_system_update" \
+        "System Update (${PM##*/})" \
+        "$RETRIES" \
+        "rpm_update_worth_retrying"
 
 else
 
@@ -380,12 +477,18 @@ else
     # apt has no --exclude, so the equivalent is a hold for the length of the
     # run. Packages that were already held stay held: they are not ours to
     # release.
+    #
+    # linux-* is left out on purpose: linux-modules-nvidia-*, linux-objects-* and
+    # linux-signatures-* are built against one kernel and have to be free to come
+    # and go with it. A hold on those is a hold on the kernel, and the upgrade
+    # stops resolving - the same trap the rpm path fell into with its glob.
     if [[ "$WITH_NVIDIA" == false ]]; then
         mapfile -t already_held < <(apt-mark showhold 2>/dev/null)
         mapfile -t nvidia_pkgs < <(
             apt list --upgradable 2>/dev/null \
               | awk -F/ 'NR > 1 { print $1 }' \
-              | grep -iE 'nvidia|cuda' || true
+              | grep -iE 'nvidia|cuda' \
+              | grep -v '^linux-' || true
         )
         for pkg in "${nvidia_pkgs[@]}"; do
             [[ -z "$pkg" ]] && continue
@@ -402,9 +505,26 @@ else
         fi
     fi
 
+    # Same question as on the rpm side, asked of apt: -s simulates the upgrade
+    # without downloading or installing anything, and apt names unmet
+    # dependencies plainly when they are what stopped it.
+    deb_update_worth_retrying() {
+        local log problem
+        log="$(mktemp -t update-every-thing.XXXXXX)" || return 0
+        apt-get -s full-upgrade > "$log" 2>&1
+        problem="$(grep -m1 -iE 'unmet dependencies|broken packages' "$log" | sed 's/^[[:space:]]*//')"
+        rm -f "$log"
+        [[ -z "$problem" ]] && return 0
+        printf '%s   %s%s\n' "$C_DIM" "$problem" "$C_RESET"
+        GIVE_UP_REASON="the transaction does not resolve - not retried"
+        return 1
+    }
+
     retry_command \
         "sudo DEBIAN_FRONTEND=noninteractive $PM full-upgrade -y" \
-        "System Update (apt)"
+        "System Update (apt)" \
+        "$RETRIES" \
+        "deb_update_worth_retrying"
 
     restore_holds
 fi
@@ -485,7 +605,7 @@ if [[ "$WITH_NVIDIA" == true ]]; then
     echo
     printf '%sInstalled NVIDIA packages:%s\n' "$C_BOLD" "$C_RESET"
     if [[ "$FAMILY" == rpm ]]; then
-        sudo "$PM" list installed '*nvidia*' || true
+        sudo "$PM" -C list --installed '*nvidia*' || true
     else
         apt list --installed 2>/dev/null | grep -i nvidia || true
     fi
